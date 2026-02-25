@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(for f in test_cdn_detection.py test_agent.py test_summary.py test_db.py test_schemas.py test_sui_tools.py test_solana_tools.py; do\n  if [ -f \"/Users/simon/Documents/Code/nullrabbit/nr-scan-oss/discovery-agent/tests/$f\" ]; then\n    echo \"EXISTS: $f\"\n  else\n    echo \"MISSING: $f\"\n  fi\ndone)",
+      "Bash(PYTHONPATH=. venv/bin/pytest tests/test_cdn_detection.py tests/test_summary.py tests/test_db.py tests/test_sui_tools.py tests/test_solana_tools.py -v --tb=short 2>&1 | tail -50)",
+      "Bash(PYTHONPATH=. venv/bin/pytest tests/ -x -q 2>&1 | tail -5)",
+      "Bash(psql postgresql://nr_scan:nr_scan_dev@localhost:5433/nr_scan -c \"\nSELECT service_type, COUNT\\(*\\) \nFROM discovery.hosts h\nJOIN discovery.networks n ON n.id = h.network_id\nWHERE n.name = 'solana'\nGROUP BY service_type ORDER BY count DESC;\n\" && psql postgresql://nr_scan:nr_scan_dev@localhost:5433/nr_scan -c \"\nSELECT service_type, COUNT\\(*\\) \nFROM discovery.hosts h\nJOIN discovery.networks n ON n.id = h.network_id\nWHERE n.name = 'sui'\nGROUP BY service_type ORDER BY count DESC;\n\")",
+      "Bash(psql postgresql://nr_scan:nr_scan_dev@localhost:5433/nr_scan -c \"\n-- Solana: duplicate IPs \\(same IP, different port/service\\)\nSELECT ip_address::text, COUNT\\(*\\) as rows, array_agg\\(DISTINCT port\\) as ports, array_agg\\(DISTINCT service_type\\) as services\nFROM discovery.hosts h\nJOIN discovery.networks n ON n.id = h.network_id\nWHERE n.name = 'solana' AND ip_address IS NOT NULL\nGROUP BY ip_address\nHAVING COUNT\\(*\\) > 1\nORDER BY rows DESC\nLIMIT 10;\n\")",
+      "Bash(psql postgresql://nr_scan:nr_scan_dev@localhost:5433/nr_scan -c \"\n-- Sui: how many hostname-only records have a duplicate with an IP?\nSELECT COUNT\\(*\\) as hostname_ip_dupes\nFROM discovery.hosts h1\nJOIN discovery.hosts h2 ON h2.network_id = h1.network_id\n  AND h2.hostname = h1.hostname\n  AND \\(h2.port IS NOT DISTINCT FROM h1.port\\)\n  AND h2.ip_address IS NOT NULL\nWHERE h1.ip_address IS NULL AND h1.hostname IS NOT NULL\n  AND h1.network_id = \\(SELECT id FROM discovery.networks WHERE name = 'sui'\\);\n\" && psql postgresql://nr_scan:nr_scan_dev@localhost:5433/nr_scan -c \"\n-- Sui hostname-only: sample\nSELECT hostname, port, service_type, confidence, last_seen_at::date\nFROM discovery.hosts h\nJOIN discovery.networks n ON n.id = h.network_id\nWHERE n.name = 'sui' AND ip_address IS NULL\nLIMIT 10;\n\")",
+      "Bash(cp -r /Users/simon/Documents/Code/nullrabbit/nr-scan-oss/discovery-agent /Users/simon/Documents/Code/nullrabbit/nr-discovery-agent && echo \"Copied\")"
+    ]
+  }
+}
