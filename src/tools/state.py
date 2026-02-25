@@ -4,11 +4,10 @@ State management tools: thin wrappers around Database methods.
 These tools let the agent read and write to the discovery inventory.
 """
 
-import ipaddress
 from datetime import datetime, timezone
 from uuid import UUID
 
-from src.db import Database
+from src.api_client import DiscoveryApiClient as Database
 from src.tools.schemas import (
     BULK_REPORT_DISCOVERED_HOSTS_SCHEMA,
     FLAG_HOST_GONE_SCHEMA,
@@ -18,28 +17,6 @@ from src.tools.schemas import (
     REPORT_DISCOVERED_HOST_SCHEMA,
     SEARCH_PAST_HYPOTHESES_SCHEMA,
 )
-
-# CDN and proxy IP ranges — these are not validator infrastructure
-_CDN_RANGES = [
-    # Cloudflare
-    ipaddress.ip_network("104.16.0.0/12"),
-    ipaddress.ip_network("172.64.0.0/13"),
-    # Fastly
-    ipaddress.ip_network("151.101.0.0/16"),
-    # Akamai (selected ranges)
-    ipaddress.ip_network("23.32.0.0/11"),
-    ipaddress.ip_network("96.16.0.0/15"),
-]
-
-
-def _is_cdn_ip(ip_str: str) -> bool:
-    """Return True if ip_str falls within a known CDN/proxy range."""
-    try:
-        addr = ipaddress.ip_address(ip_str)
-    except ValueError:
-        return False
-    return any(addr in net for net in _CDN_RANGES)
-
 
 class StateTools:
     """
@@ -204,16 +181,6 @@ class StateTools:
         run_id: str | None = None,
         **kwargs,
     ) -> dict:
-        # Reject CDN/proxy IPs before touching the database
-        if ip_address and _is_cdn_ip(ip_address):
-            return {
-                "error": (
-                    f"Rejected: {ip_address} is a CDN/proxy IP. "
-                    "Not validator infrastructure."
-                ),
-                "ip_address": ip_address,
-            }
-
         network_id = await self._db.get_network_id(network)
         if not network_id:
             return {"error": f"Unknown network: {network!r}"}
@@ -268,9 +235,6 @@ class StateTools:
             ip = h.get("ip_address")
             hostname = h.get("hostname")
             if not ip and not hostname:
-                continue
-            if ip and _is_cdn_ip(ip):
-                errors.append({"host": ip, "error": "Skipped: CDN/proxy IP"})
                 continue
 
             validator_id = None

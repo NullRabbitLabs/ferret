@@ -2,32 +2,25 @@
 Shared test fixtures for the discovery agent.
 
 Provides:
-- mock_db: AsyncMock of Database
+- mock_db: AsyncMock of DiscoveryApiClient
 - mock_gateway: AsyncMock of DiscoveryGatewayClient
-- real_db: asyncpg pool connected to nr_scan_test (requires DB)
 """
 
-import asyncio
-import os
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock
 from uuid import UUID, uuid4
 
 import pytest
-import pytest_asyncio
 
-from src.db import Database, DiscoveryRun
+from src.api_client import DiscoveryApiClient
+from src.db import DiscoveryRun
 from src.gateway_client import DiscoveryGatewayClient, GatewayResponse, ToolCall
 
 
-# ============================================================
-# Mock fixtures (no infrastructure required)
-# ============================================================
-
 @pytest.fixture
 def mock_db():
-    """Mock Database with sensible defaults."""
-    db = AsyncMock(spec=Database)
+    """Mock DiscoveryApiClient with sensible defaults."""
+    db = AsyncMock(spec=DiscoveryApiClient)
     network_id = uuid4()
     run_id = uuid4()
 
@@ -99,77 +92,3 @@ def make_tool_call_response(tool_name: str, args: dict, tc_id: str | None = None
 def stop_response(text: str = "Done.") -> GatewayResponse:
     """Helper to build a stop response."""
     return GatewayResponse(finish_reason="stop", tool_calls=[], text=text)
-
-
-# ============================================================
-# Real database fixtures (requires nr_scan_test on port 5433)
-# ============================================================
-
-TEST_DB_URL = os.getenv(
-    "TEST_DATABASE_URL",
-    "postgresql://nr_scan:nr_scan_dev@localhost:5433/nr_scan_test",
-)
-
-MIGRATION_SQL = (
-    open(
-        os.path.join(
-            os.path.dirname(__file__),
-            "../../migrations/023_discovery_schema.sql",
-        )
-    )
-    .read()
-    .split("-- migrate:down")[0]
-    .split("-- migrate:up")[1]
-    .strip()
-)
-
-
-@pytest_asyncio.fixture(scope="session")
-async def real_db():
-    """
-    asyncpg Database connected to nr_scan_test.
-
-    Applies the discovery schema migration once per session.
-    Requires the test database to exist.
-    """
-    db = Database(TEST_DB_URL, min_size=1, max_size=3)
-    try:
-        await db.connect()
-    except Exception:
-        pytest.skip("Test database not available at " + TEST_DB_URL)
-        return
-
-    # Apply migration (idempotent — uses IF NOT EXISTS)
-    async with db.acquire() as conn:
-        # Enable pgvector if available
-        try:
-            await conn.execute("CREATE EXTENSION IF NOT EXISTS vector")
-        except Exception:
-            pass
-        for statement in MIGRATION_SQL.split(";"):
-            stmt = statement.strip()
-            if stmt:
-                try:
-                    await conn.execute(stmt)
-                except Exception:
-                    pass  # Some statements may already exist
-
-    yield db
-    await db.close()
-
-
-@pytest_asyncio.fixture
-async def clean_real_db(real_db):
-    """Truncate discovery tables before each test."""
-    async with real_db.acquire() as conn:
-        await conn.execute(
-            """
-            TRUNCATE
-                discovery.discovery_hypotheses,
-                discovery.discovery_runs,
-                discovery.hosts,
-                discovery.validators
-            RESTART IDENTITY CASCADE
-            """
-        )
-    yield real_db

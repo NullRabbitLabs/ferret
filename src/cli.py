@@ -22,8 +22,8 @@ load_dotenv(_here / ".env")
 load_dotenv(_here.parent / ".env")
 
 from src.agent import DiscoveryAgent
+from src.api_client import DiscoveryApiClient
 from src.config import Config
-from src.db import Database
 from src.gateway_client import DiscoveryGatewayClient
 from src.tools.blockchain.solana import SolanaTools
 from src.tools.blockchain.sui import SuiTools
@@ -43,13 +43,8 @@ def _get_config() -> Config:
     return Config.from_env()
 
 
-async def _setup(config: Config) -> tuple[Database, DiscoveryGatewayClient, StateTools]:
-    db = Database(
-        config.database_url,
-        min_size=config.db_pool_min_size,
-        max_size=config.db_pool_max_size,
-    )
-    await db.connect()
+async def _setup(config: Config) -> tuple[DiscoveryApiClient, DiscoveryGatewayClient, StateTools]:
+    db = DiscoveryApiClient(config.discovery_api_url)
 
     gateway = DiscoveryGatewayClient(config.llm_gateway_url, model=config.llm_model)
 

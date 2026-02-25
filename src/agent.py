@@ -30,7 +30,8 @@ _LIST_KEYS = ("hosts", "validators", "results", "records", "committee")
 # - bulk_report_discovered_hosts: internal batch import, not for LLM use
 _CODE_ONLY_TOOLS = {"asn_lookup", "reverse_dns", "get_known_hosts", "bulk_report_discovered_hosts"}
 
-from src.db import Database, DiscoveryRun, DiscoveryRunResult
+from src.api_client import DiscoveryApiClient as Database
+from src.db import DiscoveryRun, DiscoveryRunResult
 from src.gateway_client import DiscoveryGatewayClient, GatewayResponse, ToolCall
 from src.tools.registry import NetworkRegistry
 from src.tools.state import StateTools

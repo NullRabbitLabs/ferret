@@ -1,16 +1,16 @@
 """
-Configuration for the discovery agent service.
+Configuration for the discovery agent.
 
 All settings loaded from environment variables.
 """
 
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 
 @dataclass
 class Config:
-    database_url: str
+    discovery_api_url: str
     llm_gateway_url: str
     llm_model: str
     sui_rpc_url: str
@@ -21,17 +21,14 @@ class Config:
     probe_rate_limit: int
     github_token: str | None
     serp_api_key: str | None
-    db_pool_min_size: int
-    db_pool_max_size: int
 
     @classmethod
     def from_env(cls) -> "Config":
-        database_url = os.environ.get(
-            "DATABASE_URL",
-            "postgresql://nr_scan:nr_scan_dev@localhost:5433/nr_scan",
-        )
         return cls(
-            database_url=database_url,
+            discovery_api_url=os.environ.get(
+                "DISCOVERY_API_URL",
+                "http://localhost:8092",
+            ),
             llm_gateway_url=os.environ.get("LLM_GATEWAY_URL", "http://localhost:8090"),
             # deepseek-chat (V3) supports tool calls; deepseek-reasoner (R1) does not
             llm_model=os.environ.get("DISCOVERY_LLM_MODEL", "deepseek-chat"),
@@ -49,6 +46,4 @@ class Config:
             ),
             github_token=os.environ.get("GITHUB_TOKEN"),
             serp_api_key=os.environ.get("SERP_API_KEY"),
-            db_pool_min_size=int(os.environ.get("DB_POOL_MIN_SIZE", "1")),
-            db_pool_max_size=int(os.environ.get("DB_POOL_MAX_SIZE", "5")),
         )
