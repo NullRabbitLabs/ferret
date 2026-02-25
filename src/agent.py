@@ -443,7 +443,7 @@ class DiscoveryAgent:
         validators = await self._db.get_validators(network_id)
         hosts = await self._db.get_hosts(network_id, is_active=True)
         runs = await self._db.get_recent_runs(network_id, limit=1)
-        last_run = runs[0]["started_at"].isoformat() if runs else "Never"
+        last_run = str(runs[0]["started_at"])[:19] if runs else "Never"
 
         return _SYSTEM_PROMPT_TEMPLATE.format(
             network=network,
