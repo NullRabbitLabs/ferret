@@ -23,6 +23,7 @@ class Config:
     serp_api_key: str | None
     host: str = "0.0.0.0"
     port: int = 8093
+    log_level: str = "INFO"
 
     @classmethod
     def from_env(cls) -> "Config":
@@ -50,4 +51,5 @@ class Config:
             serp_api_key=os.environ.get("SERP_API_KEY"),
             host=os.environ.get("HOST", "0.0.0.0"),
             port=int(os.environ.get("PORT", "8093")),
+            log_level=os.environ.get("LOG_LEVEL", "INFO"),
         )

@@ -76,6 +76,7 @@ class DiscoveryAgent:
         network: str,
         focus: str | None = None,
         on_event: Callable[[str], None] | None = None,
+        existing_run_id: UUID | None = None,
     ) -> DiscoveryRunResult:
         """
         Run a discovery session for the given network.
@@ -83,6 +84,7 @@ class DiscoveryAgent:
         Args:
             network: Network name (e.g. 'sui', 'solana')
             focus: Optional directive (e.g. 'new validators since last run')
+            existing_run_id: Pre-created run UUID (skips creating a new run record)
 
         Returns:
             DiscoveryRunResult with run stats.
@@ -99,8 +101,12 @@ class DiscoveryAgent:
         chain_type = network_record["chain_type"]
         network_id: UUID = network_record["id"]
 
-        run = await self._db.create_discovery_run(network_id)
-        run_id_str = str(run.id)
+        if existing_run_id is not None:
+            run_id = existing_run_id
+        else:
+            _run = await self._db.create_discovery_run(network_id)
+            run_id = _run.id
+        run_id_str = str(run_id)
         self._state_tools.init_run_stats(run_id_str)
 
         chain_tools = NetworkRegistry.get_chain_tools(chain_type)
@@ -283,7 +289,7 @@ class DiscoveryAgent:
             )
 
             await self._db.update_run_stats(
-                run.id,
+                run_id,
                 tool_calls=tool_call_count,
                 tokens=total_prompt_tokens + total_completion_tokens,
             )
@@ -303,13 +309,13 @@ class DiscoveryAgent:
         summary = await self._get_summary(messages, run_stats, new_discoveries=self._discoveries)
 
         await self._db.update_run_stats(
-            run.id,
+            run_id,
             hosts_new=run_stats.get("hosts_new", 0),
             hosts_updated=run_stats.get("hosts_updated", 0),
             hosts_gone=run_stats.get("hosts_gone", 0),
         )
         await self._db.complete_discovery_run(
-            run.id,
+            run_id,
             summary=summary,
             transcript=messages,
             status="completed",
@@ -325,7 +331,7 @@ class DiscoveryAgent:
         )
 
         return DiscoveryRunResult(
-            run_id=run.id,
+            run_id=run_id,
             network=network,
             hosts_discovered=run_stats.get("hosts_new", 0) + run_stats.get("hosts_updated", 0),
             hosts_new=run_stats.get("hosts_new", 0),

@@ -1,51 +1,40 @@
 """Tests for ferret HTTP server."""
 
+import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from src.db import DiscoveryRunResult
+from src.db import DiscoveryRun
 from src.server import app
 
+from datetime import datetime, timezone
 
-@pytest.fixture
-def run_result():
-    return DiscoveryRunResult(
-        run_id=uuid4(),
-        network="sui",
-        hosts_discovered=5,
-        hosts_new=3,
-        hosts_updated=2,
-        hosts_gone=0,
-        tool_calls=10,
-        llm_tokens_used=1000,
-        summary="Found 3 new hosts.",
+
+def _make_run(run_id=None, network_id=None):
+    return DiscoveryRun(
+        id=run_id or uuid4(),
+        network_id=network_id or uuid4(),
+        started_at=datetime.now(timezone.utc),
+        status="running",
     )
 
 
 @pytest.fixture
-def mock_db():
-    db = AsyncMock()
-    db.get_network.return_value = {
-        "id": str(uuid4()),
+def mock_api_client():
+    client = AsyncMock()
+    client.get_network.return_value = {
+        "id": uuid4(),
         "name": "sui",
         "chain_type": "sui",
         "rpc_endpoints": ["https://fullnode.mainnet.sui.io:443"],
         "enabled": True,
     }
-    return db
-
-
-@pytest.fixture
-def mock_gateway():
-    return AsyncMock()
-
-
-@pytest.fixture
-def mock_state_tools():
-    return MagicMock()
+    client.create_discovery_run.return_value = _make_run()
+    client.close = AsyncMock()
+    return client
 
 
 async def test_health():
@@ -55,56 +44,62 @@ async def test_health():
     assert resp.json() == {"status": "ok"}
 
 
-async def test_discover_success(mock_db, mock_gateway, mock_state_tools, run_result):
-    mock_agent = MagicMock()
-    mock_agent.run = AsyncMock(return_value=run_result)
+async def test_discover_returns_run_id_immediately(mock_api_client):
+    run = _make_run()
+    mock_api_client.create_discovery_run.return_value = run
 
     with (
-        patch(
-            "src.server._setup",
-            new=AsyncMock(return_value=(mock_db, mock_gateway, mock_state_tools)),
-        ),
-        patch("src.server.DiscoveryAgent", return_value=mock_agent),
+        patch("src.server.DiscoveryApiClient", return_value=mock_api_client),
+        patch("src.server.asyncio.create_task") as mock_task,
     ):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             resp = await client.post("/discover", json={"network": "sui"})
 
     assert resp.status_code == 200
     data = resp.json()
-    assert data["network"] == "sui"
-    assert data["hosts_new"] == 3
-    assert data["hosts_updated"] == 2
-    assert data["tool_calls"] == 10
-    assert data["summary"] == "Found 3 new hosts."
+    assert data["run_id"] == str(run.id)
+    assert data["status"] == "running"
+    mock_task.assert_called_once()
 
 
-async def test_discover_with_focus(mock_db, mock_gateway, mock_state_tools, run_result):
-    mock_agent = MagicMock()
-    mock_agent.run = AsyncMock(return_value=run_result)
-
+async def test_discover_starts_background_task(mock_api_client):
     with (
-        patch(
-            "src.server._setup",
-            new=AsyncMock(return_value=(mock_db, mock_gateway, mock_state_tools)),
-        ),
-        patch("src.server.DiscoveryAgent", return_value=mock_agent),
+        patch("src.server.DiscoveryApiClient", return_value=mock_api_client),
+        patch("src.server.asyncio.create_task") as mock_task,
     ):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-            resp = await client.post(
-                "/discover", json={"network": "sui", "focus": "new validators only"}
-            )
+            await client.post("/discover", json={"network": "sui"})
 
-    assert resp.status_code == 200
-    mock_agent.run.assert_called_once_with(network="sui", focus="new validators only")
+    mock_task.assert_called_once()
 
 
-async def test_discover_unknown_network(mock_db, mock_gateway, mock_state_tools):
-    mock_db.get_network.return_value = None
+async def test_discover_with_focus(mock_api_client):
+    run = _make_run()
+    mock_api_client.create_discovery_run.return_value = run
 
-    with patch(
-        "src.server._setup",
-        new=AsyncMock(return_value=(mock_db, mock_gateway, mock_state_tools)),
+    captured_coro = None
+
+    def capture_task(coro):
+        nonlocal captured_coro
+        captured_coro = coro
+        return MagicMock()
+
+    with (
+        patch("src.server.DiscoveryApiClient", return_value=mock_api_client),
+        patch("src.server.asyncio.create_task", side_effect=capture_task),
     ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            await client.post("/discover", json={"network": "sui", "focus": "new validators only"})
+
+    # Clean up the coroutine to avoid resource warning
+    if captured_coro is not None:
+        captured_coro.close()
+
+
+async def test_discover_unknown_network(mock_api_client):
+    mock_api_client.get_network.return_value = None
+
+    with patch("src.server.DiscoveryApiClient", return_value=mock_api_client):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             resp = await client.post("/discover", json={"network": "unknown-chain"})
 
@@ -118,21 +113,12 @@ async def test_discover_missing_network_field():
     assert resp.status_code == 422
 
 
-async def test_discover_closes_clients_on_success(
-    mock_db, mock_gateway, mock_state_tools, run_result
-):
-    mock_agent = MagicMock()
-    mock_agent.run = AsyncMock(return_value=run_result)
-
+async def test_discover_closes_client_after_response(mock_api_client):
     with (
-        patch(
-            "src.server._setup",
-            new=AsyncMock(return_value=(mock_db, mock_gateway, mock_state_tools)),
-        ),
-        patch("src.server.DiscoveryAgent", return_value=mock_agent),
+        patch("src.server.DiscoveryApiClient", return_value=mock_api_client),
+        patch("src.server.asyncio.create_task"),
     ):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             await client.post("/discover", json={"network": "sui"})
 
-    mock_db.close.assert_called_once()
-    mock_gateway.close.assert_called_once()
+    mock_api_client.close.assert_called_once()

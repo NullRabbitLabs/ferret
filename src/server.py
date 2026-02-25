@@ -2,11 +2,14 @@
 
 Exposes:
   GET  /health   → liveness probe
-  POST /discover → runs the LLM agent loop for a given network
+  POST /discover → starts a background discovery run; returns run_id immediately
 """
 
+import asyncio
+import logging
+from uuid import UUID
+
 from fastapi import FastAPI, HTTPException
-from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel
 
 from src.agent import DiscoveryAgent
@@ -25,6 +28,8 @@ from src.tools.network import (
 from src.tools.osint import GithubCodeSearchTool, WebSearchTool
 from src.tools.registry import NetworkRegistry
 from src.tools.state import StateTools
+
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title="ferret")
 
@@ -62,21 +67,10 @@ async def _setup(
     return db, gateway, state_tools
 
 
-@app.get("/health")
-async def health() -> dict:
-    return {"status": "ok"}
-
-
-@app.post("/discover")
-async def discover(body: DiscoverRequest) -> dict:
-    config = Config.from_env()
+async def _run_agent(network: str, focus: str | None, run_id: UUID, config: Config) -> None:
+    """Background task: run the full discovery agent loop."""
     db, gateway, state_tools = await _setup(config)
     try:
-        network = await db.get_network(body.network)
-        if network is None:
-            raise HTTPException(
-                status_code=404, detail=f"Unknown network: {body.network}"
-            )
         agent = DiscoveryAgent(
             db=db,
             gateway=gateway,
@@ -85,8 +79,36 @@ async def discover(body: DiscoverRequest) -> dict:
             max_new_hosts=config.max_new_hosts,
             max_idle_calls=config.max_idle_calls,
         )
-        result = await agent.run(network=body.network, focus=body.focus)
-        return jsonable_encoder(result)
+        await agent.run(network=network, focus=focus, existing_run_id=run_id)
+    except Exception:
+        logger.exception("background agent run failed network=%s run_id=%s", network, run_id)
+        try:
+            await db.complete_discovery_run(run_id, status="failed")
+        except Exception:
+            pass
     finally:
         await db.close()
         await gateway.close()
+
+
+@app.get("/health")
+async def health() -> dict:
+    return {"status": "ok"}
+
+
+@app.post("/discover")
+async def discover(body: DiscoverRequest) -> dict:
+    config = Config.from_env()
+    db = DiscoveryApiClient(config.discovery_api_url)
+    try:
+        network = await db.get_network(body.network)
+        if network is None:
+            raise HTTPException(
+                status_code=404, detail=f"Unknown network: {body.network}"
+            )
+        run = await db.create_discovery_run(network["id"])
+        asyncio.create_task(_run_agent(body.network, body.focus, run.id, config))
+        logger.info("discovery run started network=%s run_id=%s", body.network, run.id)
+        return {"run_id": str(run.id), "status": "running"}
+    finally:
+        await db.close()
