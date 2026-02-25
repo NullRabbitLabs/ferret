@@ -21,6 +21,8 @@ class Config:
     probe_rate_limit: int
     github_token: str | None
     serp_api_key: str | None
+    host: str = "0.0.0.0"
+    port: int = 8093
 
     @classmethod
     def from_env(cls) -> "Config":
@@ -46,4 +48,6 @@ class Config:
             ),
             github_token=os.environ.get("GITHUB_TOKEN"),
             serp_api_key=os.environ.get("SERP_API_KEY"),
+            host=os.environ.get("HOST", "0.0.0.0"),
+            port=int(os.environ.get("PORT", "8093")),
         )
