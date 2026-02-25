@@ -1,5 +1,5 @@
 """
-OpenAI-format tool schemas for the discovery agent.
+OpenAI-format tool schemas for Ferret.
 
 All 14 tool definitions as Python dicts. No logic — pure schema data.
 These are passed to /v1/chat/completions as the `tools` parameter.

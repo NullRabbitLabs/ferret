@@ -16,7 +16,7 @@ from pathlib import Path
 import click
 from dotenv import load_dotenv
 
-# Load .env — check discovery-agent dir first, then parent (monorepo root)
+# Load .env from project root, then parent directory
 _here = Path(__file__).parent.parent
 load_dotenv(_here / ".env")
 load_dotenv(_here.parent / ".env")
@@ -81,7 +81,7 @@ async def _setup(config: Config) -> tuple[DiscoveryApiClient, DiscoveryGatewayCl
 
 @click.group()
 def cli() -> None:
-    """NullRabbit Discovery Agent — autonomous validator infrastructure discovery."""
+    """Ferret — autonomous DeFi validator infrastructure discovery."""
 
 
 @cli.command()

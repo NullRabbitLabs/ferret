@@ -1,8 +1,7 @@
 """
-Gateway client for the discovery agent.
+Gateway client for Ferret.
 
 Wraps /v1/chat/completions (OpenAI-format) for tool-augmented LLM calls.
-Does NOT touch alan's gateway_client.py — this is a standalone client.
 """
 
 import asyncio

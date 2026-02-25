@@ -1,5 +1,5 @@
 """
-Configuration for the discovery agent.
+Configuration for Ferret.
 
 All settings loaded from environment variables.
 """

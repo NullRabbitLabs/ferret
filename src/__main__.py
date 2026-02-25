@@ -1,4 +1,4 @@
-"""Entry point for `python -m discovery_agent`."""
+"""Entry point for `python -m src` (Ferret)."""
 
 from src.cli import main
 

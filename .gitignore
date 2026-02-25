@@ -1,11 +1,35 @@
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# Python
 __pycache__/
-*.pyc
+*.py[cod]
 *.pyo
 *.pyd
-.coverage
-.venv/
+.Python
 venv/
+.venv/
+env/
 *.egg-info/
 dist/
 build/
-.env
+*.egg
+
+# Testing / coverage
+.pytest_cache/
+.coverage
+htmlcov/
+coverage.xml
+*.cover
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Logs
+*.log

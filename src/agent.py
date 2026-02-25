@@ -1,5 +1,5 @@
 """
-DiscoveryAgent: autonomous LLM agent loop for validator infrastructure discovery.
+Ferret DiscoveryAgent: autonomous LLM agent loop for validator infrastructure discovery.
 
 Calls /v1/chat/completions with tools, executes tool calls, loops until
 finish_reason == 'stop' or budget exhausted.

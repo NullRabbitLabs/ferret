@@ -1,5 +1,5 @@
 """
-Shared test fixtures for the discovery agent.
+Shared test fixtures for Ferret.
 
 Provides:
 - mock_db: AsyncMock of DiscoveryApiClient
