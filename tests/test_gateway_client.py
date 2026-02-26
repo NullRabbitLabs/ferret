@@ -126,6 +126,9 @@ async def test_get_embedding_returns_vector(client):
     assert len(embedding) == 1536
     call_url = client._client.post.call_args[0][0]
     assert "/embed" in call_url
+    body = client._client.post.call_args[1]["json"]
+    assert "model" in body, "embed request must include model for gateway routing"
+    assert body["input"] == "test hypothesis"
 
 
 @pytest.mark.asyncio

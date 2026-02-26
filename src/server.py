@@ -43,7 +43,7 @@ async def _setup(
 ) -> tuple[DiscoveryApiClient, DiscoveryGatewayClient, StateTools]:
     """Initialise API client, LLM gateway, and register all tools."""
     db = DiscoveryApiClient(config.discovery_api_url)
-    gateway = DiscoveryGatewayClient(config.llm_gateway_url, model=config.llm_model)
+    gateway = DiscoveryGatewayClient(config.llm_gateway_url, model=config.llm_model, embedding_model=config.embedding_model)
 
     for chain_name, (tools_cls, _, __) in NETWORK_DEFINITIONS.items():
         if chain_name not in NetworkRegistry.registered_chains():

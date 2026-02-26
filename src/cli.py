@@ -45,7 +45,7 @@ def _get_config() -> Config:
 async def _setup(config: Config) -> tuple[DiscoveryApiClient, DiscoveryGatewayClient, StateTools]:
     db = DiscoveryApiClient(config.discovery_api_url)
 
-    gateway = DiscoveryGatewayClient(config.llm_gateway_url, model=config.llm_model)
+    gateway = DiscoveryGatewayClient(config.llm_gateway_url, model=config.llm_model, embedding_model=config.embedding_model)
 
     # Register blockchain tools
     for chain_name, (tools_cls, _, __) in NETWORK_DEFINITIONS.items():

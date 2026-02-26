@@ -38,9 +38,16 @@ class DiscoveryGatewayClient:
     Reuses a single httpx.AsyncClient across calls — call close() when done.
     """
 
-    def __init__(self, base_url: str, model: str = "deepseek-chat", timeout: float = 300.0) -> None:
+    def __init__(
+        self,
+        base_url: str,
+        model: str = "deepseek-chat",
+        embedding_model: str = "text-embedding-3-small",
+        timeout: float = 300.0,
+    ) -> None:
         self._base_url = base_url.rstrip("/")
         self._model = model
+        self._embedding_model = embedding_model
         self._timeout = timeout
         self._client = httpx.AsyncClient(timeout=self._timeout)
 
@@ -122,7 +129,7 @@ class DiscoveryGatewayClient:
         """POST to /embed to get a 1536-dimension embedding vector."""
         response = await self._client.post(
             f"{self._base_url}/embed",
-            json={"input": text},
+            json={"model": self._embedding_model, "input": text},
         )
         response.raise_for_status()
         data = response.json()

@@ -13,6 +13,7 @@ class Config:
     discovery_api_url: str
     llm_gateway_url: str
     llm_model: str
+    embedding_model: str
     rpc_urls: dict[str, str]
     max_tool_calls: int
     max_new_hosts: int
@@ -40,6 +41,7 @@ class Config:
             llm_gateway_url=os.environ.get("LLM_GATEWAY_URL", "http://localhost:8090"),
             # deepseek-chat (V3) supports tool calls; deepseek-reasoner (R1) does not
             llm_model=os.environ.get("DISCOVERY_LLM_MODEL", "deepseek-chat"),
+            embedding_model=os.environ.get("DISCOVERY_EMBEDDING_MODEL", "text-embedding-3-small"),
             rpc_urls=rpc_urls,
             max_tool_calls=int(os.environ.get("DISCOVERY_MAX_TOOL_CALLS", "30")),
             max_new_hosts=int(os.environ.get("DISCOVERY_MAX_NEW_HOSTS", "10")),
