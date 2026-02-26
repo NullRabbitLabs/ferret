@@ -3,18 +3,19 @@ Network registry — single source of truth for all supported chains.
 
 Pure data lives in networks.json (schema in networks.schema.json).
 To add a new network:
-  1. Add an entry to networks.json
-  2. Add an import + _CLASS_MAP entry below
+  1. Create src/tools/blockchain/<name>.py with a ChainTools subclass
+  2. Add an entry to networks.json
+
+No code changes required here — ChainTools subclasses self-register via
+__init_subclass__, and blockchain/__init__.py auto-imports all modules.
 """
 
 import json
 from pathlib import Path
 
+import src.tools.blockchain  # noqa: F401 — triggers auto-registration of all ChainTools subclasses
 from pydantic import BaseModel, HttpUrl, field_validator
-
-from src.tools.blockchain.cosmos import CosmosTools
-from src.tools.blockchain.solana import SolanaTools
-from src.tools.blockchain.sui import SuiTools
+from src.tools.blockchain.base import ChainTools
 
 
 class NetworkConfig(BaseModel):
@@ -47,14 +48,6 @@ class NetworkConfig(BaseModel):
         return v
 
 
-# Explicit class registry — no dynamic imports
-_CLASS_MAP: dict[str, type] = {
-    "sui": SuiTools,
-    "solana": SolanaTools,
-    "cosmos": CosmosTools,
-}
-
-
 def _load_networks() -> dict[str, NetworkConfig]:
     path = Path(__file__).parent / "networks.json"
     data = json.loads(path.read_text())
@@ -67,23 +60,25 @@ def _load_networks() -> dict[str, NetworkConfig]:
 
 def _build_network_definitions(
     configs: dict[str, NetworkConfig],
-    class_map: dict[str, type],
+    class_registry: dict[str, type] | None = None,
 ) -> dict[str, tuple]:
+    if class_registry is None:
+        class_registry = ChainTools._registry
     result = {}
     for name, cfg in configs.items():
-        if name not in class_map:
+        if name not in class_registry:
             raise KeyError(
-                f"Network {name!r} is in networks.json but has no entry in _CLASS_MAP. "
-                "Add an import and entry to src/networks.py."
+                f"Network {name!r} is in networks.json but has no ChainTools subclass. "
+                f"Create src/tools/blockchain/{name}.py with a ChainTools subclass."
             )
-        result[name] = (class_map[name], cfg.env_var, cfg.default_rpc_url)
+        result[name] = (class_registry[name], cfg.env_var, cfg.default_rpc_url)
     return result
 
 
 _NETWORK_CONFIGS: dict[str, NetworkConfig] = _load_networks()
 
 # (tools_class, env_var, default_rpc_url) — same shape as before; cli.py, server.py, config.py unchanged
-NETWORK_DEFINITIONS: dict[str, tuple] = _build_network_definitions(_NETWORK_CONFIGS, _CLASS_MAP)
+NETWORK_DEFINITIONS: dict[str, tuple] = _build_network_definitions(_NETWORK_CONFIGS)
 
 # Union of all networks' allowed ports — consumed by src/tools/network.py
 ALL_ALLOWED_PORTS: set[int] = {

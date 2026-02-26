@@ -1,5 +1,10 @@
 """
 Abstract base class for chain-specific tool sets.
+
+ChainTools subclasses self-register in ChainTools._registry when their module
+is imported. The key is the last component of the module name (e.g.
+src.tools.blockchain.cosmos → "cosmos"), which must match the network name
+in networks.json.
 """
 
 from abc import ABC, abstractmethod
@@ -14,6 +19,16 @@ class ChainTools(ABC):
     - schemas(): list of OpenAI-format dicts for this chain's tools
     - get_tool_map(): dict mapping tool_name -> async callable
     """
+
+    # Populated automatically by __init_subclass__ as chain modules are imported.
+    _registry: dict[str, type] = {}
+
+    def __init_subclass__(cls, **kwargs: object) -> None:
+        super().__init_subclass__(**kwargs)
+        # Register by the last dotted component of the defining module's name,
+        # e.g. "src.tools.blockchain.cosmos" → "cosmos".
+        network_name = cls.__module__.rsplit(".", 1)[-1]
+        ChainTools._registry[network_name] = cls
 
     @abstractmethod
     def schemas(self) -> list[dict]:

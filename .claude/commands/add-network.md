@@ -11,11 +11,10 @@ Add a new blockchain network to the discovery agent.
 ## What this does
 
 Creates all the boilerplate needed to run the discovery agent against a new network:
-1. `src/tools/blockchain/<network>.py` — ChainTools subclass
+1. `src/tools/blockchain/<network>.py` — ChainTools subclass (auto-discovered at startup)
 2. Entry in `src/networks.json` — pure data (env var, default RPC URL, allowed ports)
-3. Import + `_CLASS_MAP` entry in `src/networks.py` — wires the class to the data
 
-Everything else (cli.py, server.py, config.py, DEFAULT_ALLOWED_PORTS) is driven automatically.
+Everything else (networks.py, cli.py, server.py, config.py, DEFAULT_ALLOWED_PORTS) is driven automatically.
 
 ## Architecture (read before coding)
 
@@ -76,11 +75,7 @@ Cache the RPC response for 1 hour (validator sets change slowly). Use `httpx.Asy
 
 **Ethereum note:** The beacon chain has ~1 million validators. `get_seed_hosts()` must filter to those with a populated ENR/IP — do not return all 1M records.
 
-### Step 4 — Register the new network
-
-Registration has two sub-steps:
-
-**4a — Add data to `src/networks.json`:**
+### Step 4 — Add data to `src/networks.json`
 
 ```json
 "<network>": {
@@ -91,22 +86,10 @@ Registration has two sub-steps:
 }
 ```
 
-This also automatically populates `DEFAULT_ALLOWED_PORTS` in `src/tools/network.py` — no separate edit needed.
-
-**4b — Add import + `_CLASS_MAP` entry in `src/networks.py`:**
-
-```python
-from src.tools.blockchain.<network> import <Network>Tools
-
-_CLASS_MAP: dict[str, type] = {
-    ...existing entries...,
-    "<network>": <Network>Tools,
-}
-```
-
-This automatically registers the network in `cli.py`, `server.py`, and `config.py` via `NETWORK_DEFINITIONS`.
+That's it. `networks.py` auto-discovers the new `ChainTools` subclass at startup via `__init_subclass__`, and `DEFAULT_ALLOWED_PORTS` in `src/tools/network.py` is derived from the JSON — no other file changes needed.
 
 ### Step 5 — Update README.md
+
 
 Update the following sections in `README.md`:
 
@@ -127,6 +110,7 @@ Update the following sections in `README.md`:
 
 ### Step 6 — Verify
 
+
 ```bash
 source venv/bin/activate
 python -m pytest tests/ -x -q
@@ -140,4 +124,4 @@ PYTHONPATH=. python -m src discover --network <network>
 - Cache RPC responses — do not hammer the public RPC on every run
 - `get_seed_hosts()` must never raise — return `[]` on RPC errors, log a warning
 - Keep `schemas()` even though the LLM doesn't call them (used in audit trail)
-- Data in `networks.json`, class wiring in `networks.py` — cli.py, server.py, config.py, and DEFAULT_ALLOWED_PORTS update automatically
+- Module in `src/tools/blockchain/`, data in `src/networks.json` — that's all; cli.py, server.py, config.py, and DEFAULT_ALLOWED_PORTS update automatically

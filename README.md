@@ -85,7 +85,7 @@ Results are written to the Discovery API for use by downstream scanning and prot
 
 ## Adding Networks
 
-Adding a new chain touches **3 files**. Everything else - batch enrichment, LLM OSINT loop, context management, API persistence - is generic.
+Adding a new chain touches **2 files**. Everything else - batch enrichment, LLM OSINT loop, context management, API persistence - is generic.
 
 ### 1. Implement `ChainTools`
 
@@ -103,7 +103,9 @@ class AptosTools(ChainTools):
 
 `get_seed_hosts()` returns host dicts with: `ip_address`, `port`, `service_type`, `confidence`, `discovery_method`, `validator_pubkey`, `reasoning`.
 
-See `sui.py` and `solana.py` for reference implementations.
+The class is auto-discovered at startup via `__init_subclass__` — no registration step needed.
+
+See `sui.py`, `solana.py`, and `cosmos.py` for reference implementations.
 
 ### 2. Add data to `src/networks.json`
 
@@ -116,20 +118,7 @@ See `sui.py` and `solana.py` for reference implementations.
 }
 ```
 
-This automatically adds `DISCOVERY_APTOS_RPC` to config and the new ports to the subnet probe allowlist.
-
-### 3. Wire the class in `src/networks.py`
-
-```python
-from src.tools.blockchain.aptos import AptosTools
-
-_CLASS_MAP: dict[str, type] = {
-    ...existing entries...,
-    "aptos": AptosTools,
-}
-```
-
-That's it. cli.py, server.py, and config.py all update automatically.
+That's it. cli.py, server.py, config.py, and the subnet probe allowlist all update automatically.
 
 ## Architecture
 

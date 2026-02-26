@@ -119,14 +119,14 @@ def test_empty_allowed_ports_raises_validation_error():
         )
 
 
-def test_network_missing_from_class_map_raises_key_error():
+def test_network_missing_from_registry_raises_key_error():
     fake_cfg = NetworkConfig(
         env_var="DISCOVERY_FAKE_RPC",
         default_rpc_url="https://example.com",
         allowed_ports=[1234],
     )
     with pytest.raises(KeyError, match="fake"):
-        _build_network_definitions({"fake": fake_cfg}, {})
+        _build_network_definitions({"fake": fake_cfg}, class_registry={})
 
 
 def test_all_allowed_ports_is_union_of_all_networks():
