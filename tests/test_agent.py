@@ -956,6 +956,74 @@ def test_compact_messages_bridge_no_count_when_no_discoveries():
     assert "0 hosts" not in bridge_content
 
 
+def _make_round(i: int) -> list[dict]:
+    """One assistant-with-tool-calls + one tool-result pair."""
+    return [
+        {
+            "role": "assistant",
+            "content": None,
+            "tool_calls": [{"id": f"tc_{i}", "type": "function", "function": {"name": "f", "arguments": "{}"}}],
+        },
+        {"role": "tool", "tool_call_id": f"tc_{i}", "content": "ok"},
+    ]
+
+
+def _assert_no_orphaned_tool_messages(compacted: list[dict]) -> None:
+    """Every tool message must follow an assistant with a matching tool_call_id."""
+    seen_tool_call_ids: set[str] = set()
+    for msg in compacted:
+        role = msg.get("role")
+        if role == "assistant" and msg.get("tool_calls"):
+            for tc in msg["tool_calls"]:
+                seen_tool_call_ids.add(tc["id"])
+        if role == "tool":
+            assert msg.get("tool_call_id") in seen_tool_call_ids, (
+                f"Orphaned tool message: tool_call_id={msg.get('tool_call_id')!r} "
+                f"has no preceding assistant tool_calls in compacted history.\n"
+                f"Full compacted: {compacted}"
+            )
+
+
+def test_compact_messages_no_orphaned_tool_at_start():
+    """After compaction, recent must not start with an orphaned tool message.
+
+    User nudge messages break the 2-message-per-round parity so the tail
+    boundary can land on a tool message.
+
+    Construction: user, round0, nudge, 5 more rounds, nudge2 → 15 messages total.
+    messages[-8] = messages[7] = tool_2 (assistant_2 was dropped → orphaned).
+    """
+    from src.agent import _compact_messages
+
+    messages = [{"role": "user", "content": "initial"}]   # idx 0
+    messages += _make_round(0)                              # idx 1, 2
+    messages.append({"role": "user", "content": "nudge"})  # idx 3  ← parity shift
+    for i in range(1, 6):
+        messages += _make_round(i)                          # idx 4-13
+    messages.append({"role": "user", "content": "nudge2"}) # idx 14
+    # Total=15. messages[-8]=messages[7]=tool_2; assistant_2 is at messages[6] (dropped).
+
+    compacted = _compact_messages(messages, tail=8)
+    _assert_no_orphaned_tool_messages(compacted)
+
+
+def test_compact_messages_invariant_across_nudge_patterns():
+    """Compaction must preserve the tool-message invariant for various nudge placements."""
+    from src.agent import _compact_messages
+
+    # Try several different nudge insertion points to cover different parity outcomes
+    for nudge_after_round in range(1, 5):
+        messages = [{"role": "user", "content": "initial"}]
+        for i in range(nudge_after_round):
+            messages += _make_round(i)
+        messages.append({"role": "user", "content": "nudge"})
+        for i in range(nudge_after_round, nudge_after_round + 6):
+            messages += _make_round(i)
+
+        compacted = _compact_messages(messages, tail=8)
+        _assert_no_orphaned_tool_messages(compacted)
+
+
 # ============================================================
 # Stopping conditions: max_new_hosts, max_idle_calls
 # ============================================================

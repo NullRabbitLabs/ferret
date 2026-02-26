@@ -620,12 +620,38 @@ def _compact_messages(messages: list[dict], tail: int = 8) -> list[dict]:
     Replaces the middle with a single reminder to focus on OSINT.
     Counts report_discovered_host results in dropped messages and includes
     the count in the bridge message so the agent knows how many it reported.
+
+    Strips any orphaned messages from the front of the tail slice so the
+    resulting history satisfies the OpenAI/DeepSeek invariant: every tool
+    message must be immediately preceded (in message order) by an assistant
+    message that includes a matching tool_call_id.
     """
     if len(messages) <= tail + 2:
         return messages
     first = messages[0]
     dropped = messages[1:-tail]
-    recent = messages[-tail:]
+    recent = list(messages[-tail:])
+
+    # Strip orphaned messages from the front of recent.
+    # A tool message is orphaned if its assistant's tool_calls entry was dropped.
+    # An assistant-with-tool-calls is orphaned if any of its results were dropped
+    # (they always follow the assistant, so this can't happen — but tool messages
+    # that precede a matching assistant can appear after a nudge shifts parity).
+    while recent:
+        role = recent[0].get("role")
+        if role == "tool":
+            # No preceding assistant in recent — drop it.
+            recent.pop(0)
+        elif role == "assistant" and recent[0].get("tool_calls"):
+            # Ensure every tool_call has a matching result in the remaining slice.
+            expected = {tc["id"] for tc in recent[0]["tool_calls"]}
+            found = {m.get("tool_call_id") for m in recent[1:] if m.get("role") == "tool"}
+            if not expected.issubset(found):
+                recent.pop(0)
+            else:
+                break
+        else:
+            break  # user message or assistant without tool_calls — safe boundary
 
     report_count = sum(
         1 for msg in dropped
