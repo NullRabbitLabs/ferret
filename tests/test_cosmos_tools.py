@@ -5,27 +5,14 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 
-COSMOS_NET_INFO_RESPONSE = {
-    "result": {
-        "listening": True,
-        "n_peers": "2",
-        "peers": [
-            {
-                "node_info": {
-                    "id": "abc123def456",
-                    "listen_addr": "tcp://0.0.0.0:26656",
-                    "moniker": "my-validator",
-                },
-                "remote_ip": "1.2.3.4",
-            },
-            {
-                "node_info": {
-                    "id": "def456abc789",
-                    "listen_addr": "tcp://0.0.0.0:26656",
-                    "moniker": "another-validator",
-                },
-                "remote_ip": "5.6.7.8",
-            },
+CHAIN_REGISTRY_RESPONSE = {
+    "peers": {
+        "seeds": [
+            {"id": "abc123", "address": "seeds.polkachu.com:14956", "provider": "Polkachu"},
+            {"id": "def456", "address": "52.79.43.100:26656"},
+        ],
+        "persistent_peers": [
+            {"id": "ghi789", "address": "65.108.195.29:36656", "provider": "Staketab"},
         ],
     }
 }
@@ -34,7 +21,7 @@ COSMOS_NET_INFO_RESPONSE = {
 @pytest.fixture
 def cosmos_tools():
     from src.tools.blockchain.cosmos import CosmosTools
-    return CosmosTools(rpc_url="https://test.cosmos.com", cache_ttl=3600)
+    return CosmosTools(cache_ttl=3600)
 
 
 def _mock_http_get(json_data):
@@ -51,32 +38,41 @@ def _mock_http_get(json_data):
 
 
 @pytest.mark.asyncio
-async def test_get_seed_hosts_returns_host_dicts(cosmos_tools):
-    """get_seed_hosts() returns correctly-shaped host dicts from net_info peers."""
-    with patch("httpx.AsyncClient", return_value=_mock_http_get(COSMOS_NET_INFO_RESPONSE)):
+async def test_get_seed_hosts_returns_hosts_from_chain_registry(cosmos_tools):
+    """get_seed_hosts() returns all seeds + persistent_peers from chain registry."""
+    with patch("httpx.AsyncClient", return_value=_mock_http_get(CHAIN_REGISTRY_RESPONSE)):
         hosts = await cosmos_tools.get_seed_hosts("cosmos")
 
-    assert len(hosts) == 2
-    h = hosts[0]
-    assert h["ip_address"] == "1.2.3.4"
-    assert h["port"] == 26656
-    assert h["service_type"] == "p2p"
-    assert h["confidence"] == 0.9
-    assert h["discovery_method"] == "on_chain"
-    assert h["validator_pubkey"] == "abc123def456"
+    assert len(hosts) == 3
 
 
 @pytest.mark.asyncio
-async def test_get_seed_hosts_empty_when_no_peers(cosmos_tools):
-    """get_seed_hosts() returns [] when net_info returns no peers."""
-    with patch("httpx.AsyncClient", return_value=_mock_http_get({"result": {"peers": []}})):
+async def test_get_seed_hosts_hostname_address_sets_hostname_field(cosmos_tools):
+    """Hostname-based addresses set hostname field; ip_address is None."""
+    with patch("httpx.AsyncClient", return_value=_mock_http_get(CHAIN_REGISTRY_RESPONSE)):
         hosts = await cosmos_tools.get_seed_hosts("cosmos")
-    assert hosts == []
+
+    polkachu = next(h for h in hosts if h.get("hostname") == "seeds.polkachu.com")
+    assert polkachu["hostname"] == "seeds.polkachu.com"
+    assert polkachu["ip_address"] is None
+    assert polkachu["port"] == 14956
 
 
 @pytest.mark.asyncio
-async def test_get_seed_hosts_returns_empty_on_rpc_error(cosmos_tools):
-    """get_seed_hosts() returns [] and does not raise when RPC call fails."""
+async def test_get_seed_hosts_ip_address_sets_ip_field(cosmos_tools):
+    """IP-based addresses set ip_address field; hostname is None."""
+    with patch("httpx.AsyncClient", return_value=_mock_http_get(CHAIN_REGISTRY_RESPONSE)):
+        hosts = await cosmos_tools.get_seed_hosts("cosmos")
+
+    ip_host = next(h for h in hosts if h.get("ip_address") == "52.79.43.100")
+    assert ip_host["ip_address"] == "52.79.43.100"
+    assert ip_host["hostname"] is None
+    assert ip_host["port"] == 26656
+
+
+@pytest.mark.asyncio
+async def test_get_seed_hosts_returns_empty_on_http_error(cosmos_tools):
+    """get_seed_hosts() returns [] and does not raise when HTTP call fails."""
     mock_client = AsyncMock()
     mock_client.__aenter__ = AsyncMock(return_value=mock_client)
     mock_client.__aexit__ = AsyncMock(return_value=None)
@@ -89,74 +85,89 @@ async def test_get_seed_hosts_returns_empty_on_rpc_error(cosmos_tools):
 
 
 @pytest.mark.asyncio
-async def test_get_seed_hosts_deduplicates_same_ip_and_port(cosmos_tools):
-    """Two peers with the same remote_ip and port collapse to one host."""
-    response = {
-        "result": {
-            "peers": [
-                {
-                    "node_info": {"id": "aaa", "listen_addr": "tcp://0.0.0.0:26656", "moniker": "a"},
-                    "remote_ip": "1.2.3.4",
-                },
-                {
-                    "node_info": {"id": "bbb", "listen_addr": "tcp://0.0.0.0:26656", "moniker": "b"},
-                    "remote_ip": "1.2.3.4",
-                },
-            ]
-        }
-    }
-    with patch("httpx.AsyncClient", return_value=_mock_http_get(response)):
-        hosts = await cosmos_tools.get_seed_hosts("cosmos")
-
-    assert len(hosts) == 1
-
-
-@pytest.mark.asyncio
-async def test_get_seed_hosts_skips_peers_without_remote_ip(cosmos_tools):
-    """Peers with no remote_ip are skipped."""
-    response = {
-        "result": {
-            "peers": [
-                {
-                    "node_info": {"id": "aaa", "listen_addr": "tcp://0.0.0.0:26656", "moniker": "a"},
-                    "remote_ip": "",
-                },
-                {
-                    "node_info": {"id": "bbb", "listen_addr": "tcp://0.0.0.0:26656", "moniker": "b"},
-                    "remote_ip": "5.6.7.8",
-                },
-            ]
-        }
-    }
-    with patch("httpx.AsyncClient", return_value=_mock_http_get(response)):
-        hosts = await cosmos_tools.get_seed_hosts("cosmos")
-
-    assert len(hosts) == 1
-    assert hosts[0]["ip_address"] == "5.6.7.8"
-
-
-@pytest.mark.asyncio
-async def test_get_net_info_uses_cache_on_second_call(cosmos_tools):
-    """HTTP is called exactly once; second call returns cached result."""
-    with patch("httpx.AsyncClient", return_value=_mock_http_get(COSMOS_NET_INFO_RESPONSE)) as mock_cls:
-        await cosmos_tools.get_net_info()
-        await cosmos_tools.get_net_info()
+async def test_get_seed_hosts_caches_chain_registry_response(cosmos_tools):
+    """HTTP is called exactly once; second get_seed_hosts call uses cached data."""
+    with patch("httpx.AsyncClient", return_value=_mock_http_get(CHAIN_REGISTRY_RESPONSE)) as mock_cls:
+        await cosmos_tools.get_seed_hosts("cosmos")
+        await cosmos_tools.get_seed_hosts("cosmos")
         assert mock_cls.call_count == 1
 
 
 @pytest.mark.asyncio
-async def test_get_net_info_bypasses_cache_when_expired(cosmos_tools):
+async def test_get_seed_hosts_bypasses_cache_when_expired(cosmos_tools):
     """Expired cache triggers a new HTTP call."""
-    cosmos_tools._cache_ttl = 0  # expire immediately
-    with patch("httpx.AsyncClient", return_value=_mock_http_get(COSMOS_NET_INFO_RESPONSE)) as mock_cls:
-        await cosmos_tools.get_net_info()
-        await cosmos_tools.get_net_info()
+    cosmos_tools._cache_ttl = 0
+    with patch("httpx.AsyncClient", return_value=_mock_http_get(CHAIN_REGISTRY_RESPONSE)) as mock_cls:
+        await cosmos_tools.get_seed_hosts("cosmos")
+        await cosmos_tools.get_seed_hosts("cosmos")
         assert mock_cls.call_count == 2
 
 
-def test_parse_port_from_listen_addr():
-    from src.tools.blockchain.cosmos import _parse_port
-    assert _parse_port("tcp://0.0.0.0:26656") == 26656
-    assert _parse_port("tcp://1.2.3.4:26660") == 26660
-    assert _parse_port("") is None
-    assert _parse_port("no-port-here") is None
+@pytest.mark.asyncio
+async def test_get_seed_hosts_deduplicates_same_host_and_port(cosmos_tools):
+    """Two entries with the same address collapse to one host."""
+    response = {
+        "peers": {
+            "seeds": [
+                {"id": "aaa", "address": "52.79.43.100:26656"},
+                {"id": "bbb", "address": "52.79.43.100:26656"},
+            ],
+            "persistent_peers": [],
+        }
+    }
+    with patch("httpx.AsyncClient", return_value=_mock_http_get(response)):
+        hosts = await cosmos_tools.get_seed_hosts("cosmos")
+
+    assert len(hosts) == 1
+
+
+@pytest.mark.asyncio
+async def test_get_seed_hosts_empty_when_no_peers(cosmos_tools):
+    """get_seed_hosts() returns [] when registry returns no seeds or persistent_peers."""
+    response = {"peers": {"seeds": [], "persistent_peers": []}}
+    with patch("httpx.AsyncClient", return_value=_mock_http_get(response)):
+        hosts = await cosmos_tools.get_seed_hosts("cosmos")
+
+    assert hosts == []
+
+
+@pytest.mark.asyncio
+async def test_get_seed_hosts_includes_node_id_as_validator_pubkey(cosmos_tools):
+    """Node ID from registry entry is stored as validator_pubkey."""
+    with patch("httpx.AsyncClient", return_value=_mock_http_get(CHAIN_REGISTRY_RESPONSE)):
+        hosts = await cosmos_tools.get_seed_hosts("cosmos")
+
+    polkachu = next(h for h in hosts if h.get("hostname") == "seeds.polkachu.com")
+    assert polkachu["validator_pubkey"] == "abc123"
+
+
+def test_parse_peer_address_hostname():
+    from src.tools.blockchain.cosmos import _parse_peer_address
+    hostname, ip, port = _parse_peer_address("seeds.polkachu.com:14956")
+    assert hostname == "seeds.polkachu.com"
+    assert ip is None
+    assert port == 14956
+
+
+def test_parse_peer_address_ip():
+    from src.tools.blockchain.cosmos import _parse_peer_address
+    hostname, ip, port = _parse_peer_address("52.79.43.100:26656")
+    assert hostname is None
+    assert ip == "52.79.43.100"
+    assert port == 26656
+
+
+def test_parse_peer_address_invalid_returns_none_tuple():
+    from src.tools.blockchain.cosmos import _parse_peer_address
+    hostname, ip, port = _parse_peer_address("bad")
+    assert hostname is None
+    assert ip is None
+    assert port is None
+
+
+def test_parse_peer_address_empty_returns_none_tuple():
+    from src.tools.blockchain.cosmos import _parse_peer_address
+    hostname, ip, port = _parse_peer_address("")
+    assert hostname is None
+    assert ip is None
+    assert port is None

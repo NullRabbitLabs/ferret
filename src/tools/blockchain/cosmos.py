@@ -1,7 +1,7 @@
 """
 Cosmos Hub blockchain tool implementations.
 
-Queries the CometBFT RPC /net_info endpoint for connected peers.
+Fetches seed nodes and persistent peers from the cosmos/chain-registry GitHub repo.
 Results are cached for 1 hour (peer sets change slowly).
 """
 
@@ -16,13 +16,19 @@ from src.tools.blockchain.base import ChainTools
 
 logger = logging.getLogger(__name__)
 
-COSMOS_GET_NET_INFO_SCHEMA = {
+_CHAIN_REGISTRY_URL = (
+    "https://raw.githubusercontent.com/cosmos/chain-registry/master/cosmoshub/chain.json"
+)
+
+_IPV4_RE = re.compile(r"^\d{1,3}(?:\.\d{1,3}){3}$")
+
+COSMOS_GET_CHAIN_REGISTRY_SCHEMA = {
     "type": "function",
     "function": {
-        "name": "cosmos_get_net_info",
+        "name": "cosmos_get_chain_registry",
         "description": (
-            "Fetch connected peers from the Cosmos Hub CometBFT RPC /net_info endpoint. "
-            "Returns peer node IDs, IP addresses, and P2P listen addresses. "
+            "Fetch seed nodes and persistent peers from the cosmos/chain-registry GitHub repo. "
+            "Returns hostnames/IPs and P2P ports for all advertised Cosmos Hub peers. "
             "Results cached for 1 hour."
         ),
         "parameters": {
@@ -37,99 +43,99 @@ COSMOS_GET_NET_INFO_SCHEMA = {
 class CosmosTools(ChainTools):
     """Cosmos Hub blockchain discovery tools."""
 
-    def __init__(self, rpc_url: str, cache_ttl: int = 3600) -> None:
-        self._rpc_url = rpc_url.rstrip("/")
+    def __init__(self, cache_ttl: int = 3600) -> None:
         self._cache_ttl = cache_ttl
-        self._peers_cache: dict | None = None
-        self._peers_cached_at: float = 0.0
+        self._registry_cache: dict | None = None
+        self._registry_cached_at: float = 0.0
 
     def schemas(self) -> list[dict]:
-        return [COSMOS_GET_NET_INFO_SCHEMA]
+        return [COSMOS_GET_CHAIN_REGISTRY_SCHEMA]
 
     def primary_tool_name(self) -> str:
-        return "cosmos_get_net_info"
+        return "cosmos_get_chain_registry"
 
     def get_tool_map(self) -> dict[str, Callable]:
-        return {"cosmos_get_net_info": self.get_net_info}
+        return {"cosmos_get_chain_registry": self._fetch_chain_registry}
 
     async def get_seed_hosts(self, network: str) -> list[dict]:
-        """Fetch CometBFT peers and return host list for bulk import.
+        """Fetch peers from chain registry and return host list for bulk import.
 
-        Deduplicates by (remote_ip, port). Peers missing a remote_ip are skipped.
+        Deduplicates by (hostname or ip_address, port).
+        Entries with no parseable address are skipped.
         """
-        result = await self.get_net_info()
+        data = await self._fetch_chain_registry()
         hosts = []
         seen: set[tuple] = set()
 
-        for peer in result.get("peers", []):
-            ip = peer.get("remote_ip")
-            if not ip:
+        peers = data.get("peers", {})
+        all_peers = peers.get("seeds", []) + peers.get("persistent_peers", [])
+
+        for entry in all_peers:
+            address = entry.get("address", "")
+            hostname, ip_address, port = _parse_peer_address(address)
+            if not hostname and not ip_address:
                 continue
-            port = peer.get("p2p_port") or 26656
-            key = (ip, port)
+            key = (hostname or ip_address, port)
             if key in seen:
                 continue
             seen.add(key)
 
-            node_id = peer.get("node_id", "")
-            moniker = peer.get("moniker", "")
-            label = moniker or (node_id[:10] if node_id else "unknown")
+            node_id = entry.get("id", "")
+            provider = entry.get("provider", "")
             hosts.append({
-                "ip_address": ip,
-                "port": port,
+                "ip_address": ip_address,
+                "hostname": hostname,
+                "port": port or 26656,
                 "service_type": "p2p",
-                "confidence": 0.9,
+                "confidence": 0.85,
                 "discovery_method": "on_chain",
                 "validator_pubkey": node_id,
-                "reasoning": f"CometBFT peer {label!r} from net_info",
+                "reasoning": f"Cosmos chain registry peer {provider!r}",
             })
 
         return hosts
 
     def _is_cache_valid(self) -> bool:
         return (
-            self._peers_cache is not None
-            and (time.monotonic() - self._peers_cached_at) < self._cache_ttl
+            self._registry_cache is not None
+            and (time.monotonic() - self._registry_cached_at) < self._cache_ttl
         )
 
-    async def get_net_info(self, **kwargs) -> dict:
-        """Fetch peers from CometBFT RPC /net_info. Returns [] on any error."""
+    async def _fetch_chain_registry(self, **kwargs) -> dict:
+        """Fetch chain.json from cosmos/chain-registry. Returns {} on any error."""
         if self._is_cache_valid():
-            return self._peers_cache  # type: ignore[return-value]
+            return self._registry_cache  # type: ignore[return-value]
 
         try:
             async with httpx.AsyncClient(timeout=30.0) as client:
-                response = await client.get(f"{self._rpc_url}/net_info")
+                response = await client.get(_CHAIN_REGISTRY_URL)
             response.raise_for_status()
             data = response.json()
         except Exception as e:
-            logger.warning("cosmos net_info failed rpc_url=%s error=%s", self._rpc_url, e)
-            return {"peers": [], "count": 0}
+            logger.warning("cosmos chain registry fetch failed error=%s", e)
+            return {}
 
-        peers_raw = data.get("result", {}).get("peers", [])
-        peers = []
-        for p in peers_raw:
-            node_info = p.get("node_info", {})
-            remote_ip = p.get("remote_ip", "")
-            listen_addr = node_info.get("listen_addr", "")
-            port = _parse_port(listen_addr) or 26656
-            peers.append({
-                "remote_ip": remote_ip,
-                "p2p_port": port,
-                "node_id": node_info.get("id", ""),
-                "moniker": node_info.get("moniker", ""),
-                "listen_addr": listen_addr,
-            })
-
-        result = {"peers": peers, "count": len(peers)}
-        self._peers_cache = result
-        self._peers_cached_at = time.monotonic()
-        return result
+        self._registry_cache = data
+        self._registry_cached_at = time.monotonic()
+        return data
 
 
-def _parse_port(listen_addr: str) -> int | None:
-    """Extract port from a CometBFT listen_addr like 'tcp://0.0.0.0:26656'."""
-    m = re.search(r":(\d+)$", listen_addr)
-    if m:
-        return int(m.group(1))
-    return None
+def _parse_peer_address(address: str) -> tuple[str | None, str | None, int | None]:
+    """Parse a chain registry peer address into (hostname, ip_address, port).
+
+    Accepts 'host:port' format only. Returns (None, None, None) if unparseable.
+    - If host matches IPv4 pattern → ip_address is set, hostname is None
+    - Otherwise → hostname is set, ip_address is None
+    """
+    if not address or ":" not in address:
+        return None, None, None
+
+    host, _, port_str = address.rpartition(":")
+    if not host or not port_str.isdigit():
+        return None, None, None
+
+    port = int(port_str)
+
+    if _IPV4_RE.match(host):
+        return None, host, port
+    return host, None, port
