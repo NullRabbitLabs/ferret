@@ -73,6 +73,7 @@ Results are written to the Discovery API for use by downstream scanning and prot
 | `DISCOVERY_API_URL` | `http://localhost:8092` | Discovery API base URL |
 | `LLM_GATEWAY_URL` | `http://localhost:8090` | OpenAI-compatible LLM gateway |
 | `DISCOVERY_LLM_MODEL` | `deepseek-chat` | Model (must support tool calls) |
+| `DISCOVERY_EMBEDDING_MODEL` | `text-embedding-3-small` | OpenAI embedding model for hypothesis search |
 | `DISCOVERY_SUI_RPC` | `https://fullnode.mainnet.sui.io:443` | Sui RPC endpoint |
 | `DISCOVERY_SOLANA_RPC` | `https://api.mainnet-beta.solana.com` | Solana RPC endpoint |
 | `DISCOVERY_COSMOS_RPC` | `https://cosmos-rpc.publicnode.com` | Cosmos Hub RPC endpoint |
