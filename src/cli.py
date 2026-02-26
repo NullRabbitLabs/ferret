@@ -251,3 +251,7 @@ def diff(network: str, since: str) -> None:
 
 def main() -> None:
     cli()
+
+
+if __name__ == "__main__":
+    main()
