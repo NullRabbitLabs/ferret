@@ -20,13 +20,10 @@ from src.tools.schemas import (
     WHOIS_LOOKUP_SCHEMA,
 )
 
-# Default allowed ports per chain type — tools check against this at runtime
-DEFAULT_ALLOWED_PORTS: set[int] = {
-    # Sui
-    8080, 8081, 8082, 8083, 8084, 9184, 1337,
-    # Solana
-    8000, 8001, 8002, 8003, 8899, 8900, 9900, 8328,
-}
+from src.networks import ALL_ALLOWED_PORTS
+
+# Allowed ports for subnet_probe — sourced from networks.json
+DEFAULT_ALLOWED_PORTS: set[int] = ALL_ALLOWED_PORTS
 
 # Residential IP ranges to exclude from subnet_probe
 _RESIDENTIAL_RANGES = [

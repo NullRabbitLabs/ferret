@@ -1,0 +1,52 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Ferret Network Registry",
+  "description": "Schema for src/networks.json — defines supported blockchain networks for the discovery agent.",
+  "type": "object",
+  "properties": {
+    "$schema": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": {
+    "oneOf": [
+      {
+        "type": "string",
+        "description": "$schema key — ignored by the loader"
+      },
+      {
+        "type": "object",
+        "description": "A single network entry",
+        "required": ["env_var", "default_rpc_url", "allowed_ports", "description"],
+        "additionalProperties": false,
+        "properties": {
+          "env_var": {
+            "type": "string",
+            "pattern": "^[A-Z][A-Z0-9_]*$",
+            "description": "Environment variable name for overriding the RPC URL (UPPER_SNAKE_CASE)"
+          },
+          "default_rpc_url": {
+            "type": "string",
+            "format": "uri",
+            "pattern": "^https?://",
+            "description": "Default mainnet RPC endpoint"
+          },
+          "allowed_ports": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 65535
+            },
+            "minItems": 1,
+            "description": "Ports permitted in subnet_probe for this network's validators"
+          },
+          "description": {
+            "type": "string",
+            "description": "Human-readable description of the network"
+          }
+        }
+      }
+    ]
+  }
+}

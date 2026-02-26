@@ -1,0 +1,15 @@
+{
+  "$schema": "./networks.schema.json",
+  "sui": {
+    "env_var": "DISCOVERY_SUI_RPC",
+    "default_rpc_url": "https://fullnode.mainnet.sui.io:443",
+    "allowed_ports": [8080, 8081, 8082, 8083, 8084, 9184, 1337],
+    "description": "Sui mainnet validator network"
+  },
+  "solana": {
+    "env_var": "DISCOVERY_SOLANA_RPC",
+    "default_rpc_url": "https://api.mainnet-beta.solana.com",
+    "allowed_ports": [8000, 8001, 8002, 8003, 8899, 8900, 9900, 8328],
+    "description": "Solana mainnet cluster nodes"
+  }
+}
