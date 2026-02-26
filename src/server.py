@@ -47,7 +47,11 @@ async def _setup(
 
     for chain_name, (tools_cls, _, __) in NETWORK_DEFINITIONS.items():
         if chain_name not in NetworkRegistry.registered_chains():
-            NetworkRegistry.register(chain_name, tools_cls(rpc_url=config.rpc_urls[chain_name]))
+            try:
+                instance = tools_cls(rpc_url=config.rpc_urls[chain_name])
+            except TypeError:
+                instance = tools_cls()
+            NetworkRegistry.register(chain_name, instance)
 
     if not NetworkRegistry.get_universal_tool_map():
         NetworkRegistry.register_universal_tools({

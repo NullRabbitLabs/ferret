@@ -112,3 +112,38 @@ async def test_discover_closes_client_after_response(mock_api_client):
             await client.post("/discover", json={"network": "sui"})
 
     mock_api_client.close.assert_called_once()
+
+
+async def test_setup_handles_tools_without_rpc_url():
+    """_setup must not raise when a ChainTools subclass doesn't accept rpc_url."""
+    from src.server import _setup
+    from src.tools.registry import NetworkRegistry
+
+    class _NoRpcTools:
+        def __init__(self):
+            pass
+
+    NetworkRegistry.clear()
+    with (
+        patch("src.server.NETWORK_DEFINITIONS", {"no-rpc-chain": (_NoRpcTools, "NO_RPC_URL", "http://default")}),
+        patch("src.server.DiscoveryApiClient"),
+        patch("src.server.DiscoveryGatewayClient"),
+        patch("src.server.StateTools"),
+        patch("src.server.DnsLookupTool"),
+        patch("src.server.ReverseDnsTool"),
+        patch("src.server.AsnLookupTool"),
+        patch("src.server.CertTransparencySearchTool"),
+        patch("src.server.WhoisLookupTool"),
+        patch("src.server.SubnetProbeTool"),
+        patch("src.server.GithubCodeSearchTool"),
+        patch("src.server.WebSearchTool"),
+    ):
+        config = MagicMock()
+        config.rpc_urls = {"no-rpc-chain": "http://some-rpc"}
+        config.github_token = "tok"
+        config.serp_api_key = "key"
+        # Should not raise TypeError
+        await _setup(config)
+
+    assert "no-rpc-chain" in NetworkRegistry.registered_chains()
+    assert isinstance(NetworkRegistry.get_chain_tools("no-rpc-chain"), _NoRpcTools)
