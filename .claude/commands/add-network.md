@@ -114,7 +114,26 @@ Add a field to the `Config` dataclass and a default in `from_env()`:
 
 In `src/tools/network.py`, add the chain's validator ports to `DEFAULT_ALLOWED_PORTS`.
 
-### Step 8 — Verify
+### Step 8 — Update README.md
+
+Update the following sections in `README.md`:
+
+1. **Features** — add the new chain to the "On-chain seeding" bullet:
+   ```
+   - **On-chain seeding** — pulls validator addresses directly from chain RPC (Sui, Solana, <Network>)
+   ```
+
+2. **Configuration table** — add the new RPC env var row:
+   ```
+   | `DISCOVERY_<NETWORK>_RPC` | `<mainnet_default_url>` | <Network> RPC endpoint |
+   ```
+
+3. **Architecture tree** — add the new file under `blockchain/`:
+   ```
+   └── <network>.py     # <Network> mainnet
+   ```
+
+### Step 9 — Verify
 
 ```bash
 source venv/bin/activate
