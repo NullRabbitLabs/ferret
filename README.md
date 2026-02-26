@@ -104,19 +104,31 @@ class AptosTools(ChainTools):
 
 See `sui.py` and `solana.py` for reference implementations.
 
-### 2. Register in `src/cli.py`
+### 2. Add data to `src/networks.json`
+
+```json
+"aptos": {
+  "env_var": "DISCOVERY_APTOS_RPC",
+  "default_rpc_url": "https://fullnode.mainnet.aptoslabs.com/v1",
+  "allowed_ports": [6180, 6181, 8080],
+  "description": "Aptos mainnet validator nodes"
+}
+```
+
+This automatically adds `DISCOVERY_APTOS_RPC` to config and the new ports to the subnet probe allowlist.
+
+### 3. Wire the class in `src/networks.py`
 
 ```python
 from src.tools.blockchain.aptos import AptosTools
 
-NetworkRegistry.register("aptos", AptosTools(rpc_url=config.aptos_rpc_url))
+_CLASS_MAP: dict[str, type] = {
+    ...existing entries...,
+    "aptos": AptosTools,
+}
 ```
 
-### 3. Add config in `src/config.py`
-
-Add the RPC URL env var to the `Config` dataclass.
-
-Optionally add chain-specific ports to `DEFAULT_ALLOWED_PORTS` in `src/tools/network.py`.
+That's it. cli.py, server.py, and config.py all update automatically.
 
 ## Architecture
 
@@ -128,6 +140,9 @@ src/
 ├── gateway_client.py     # OpenAI-format LLM gateway client
 ├── api_client.py         # Discovery API HTTP client
 ├── db.py                 # Data models
+├── networks.json         # Network registry — edit here to add a chain
+├── networks.schema.json  # JSON Schema for IDE validation
+├── networks.py           # Loads networks.json, exports NETWORK_DEFINITIONS
 └── tools/
     ├── base.py           # BaseTool with rate limiting
     ├── schemas.py        # OpenAI tool schemas

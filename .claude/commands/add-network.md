@@ -12,8 +12,10 @@ Add a new blockchain network to the discovery agent.
 
 Creates all the boilerplate needed to run the discovery agent against a new network:
 1. `src/tools/blockchain/<network>.py` — ChainTools subclass
-2. Register in `src/networks.py` (automatically propagates to cli.py, server.py, and config.py)
-3. Add ports to subnet_probe allowlist in `src/tools/network.py`
+2. Entry in `src/networks.json` — pure data (env var, default RPC URL, allowed ports)
+3. Import + `_CLASS_MAP` entry in `src/networks.py` — wires the class to the data
+
+Everything else (cli.py, server.py, config.py, DEFAULT_ALLOWED_PORTS) is driven automatically.
 
 ## Architecture (read before coding)
 
@@ -104,7 +106,7 @@ _CLASS_MAP: dict[str, type] = {
 
 This automatically registers the network in `cli.py`, `server.py`, and `config.py` via `NETWORK_DEFINITIONS`.
 
-### Step 6 — Update README.md
+### Step 5 — Update README.md
 
 Update the following sections in `README.md`:
 
@@ -123,7 +125,7 @@ Update the following sections in `README.md`:
    └── <network>.py     # <Network> mainnet
    ```
 
-### Step 7 — Verify
+### Step 6 — Verify
 
 ```bash
 source venv/bin/activate
@@ -138,4 +140,4 @@ PYTHONPATH=. python -m src discover --network <network>
 - Cache RPC responses — do not hammer the public RPC on every run
 - `get_seed_hosts()` must never raise — return `[]` on RPC errors, log a warning
 - Keep `schemas()` even though the LLM doesn't call them (used in audit trail)
-- Register in `src/networks.py` only — cli.py and server.py are driven from it automatically
+- Data in `networks.json`, class wiring in `networks.py` — cli.py, server.py, config.py, and DEFAULT_ALLOWED_PORTS update automatically
