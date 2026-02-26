@@ -24,6 +24,7 @@ load_dotenv(_here.parent / ".env")
 from src.agent import DiscoveryAgent
 from src.api_client import DiscoveryApiClient
 from src.config import Config
+from src.local_store import LocalDiscoveryStore
 from src.gateway_client import DiscoveryGatewayClient
 from src.networks import NETWORK_DEFINITIONS
 from src.tools.dns import DnsLookupTool, ReverseDnsTool
@@ -42,8 +43,15 @@ def _get_config() -> Config:
     return Config.from_env()
 
 
-async def _setup(config: Config) -> tuple[DiscoveryApiClient, DiscoveryGatewayClient, StateTools]:
-    db = DiscoveryApiClient(config.discovery_api_url)
+async def _setup(
+    config: Config,
+    local: bool = False,
+) -> tuple[DiscoveryApiClient | LocalDiscoveryStore, DiscoveryGatewayClient, StateTools]:
+    db: DiscoveryApiClient | LocalDiscoveryStore
+    if local:
+        db = LocalDiscoveryStore()
+    else:
+        db = DiscoveryApiClient(config.discovery_api_url)
 
     gateway = DiscoveryGatewayClient(config.llm_gateway_url, model=config.llm_model, embedding_model=config.embedding_model)
 
@@ -85,12 +93,15 @@ def cli() -> None:
 @cli.command()
 @click.option("--network", required=True, help="Network to discover (e.g. sui, solana)")
 @click.option("--focus", default=None, help="Optional discovery focus directive")
-def discover(network: str, focus: str | None) -> None:
+@click.option("--local", "use_local", is_flag=True, help="Run without a discovery API (in-memory only)")
+@click.option("--output", type=click.Path(), default=None, help="Save results to JSON file (implies --local)")
+def discover(network: str, focus: str | None, use_local: bool, output: str | None) -> None:
     """Run an autonomous discovery session for the specified network."""
+    is_local = use_local or output is not None
 
     async def _run() -> None:
         config = _get_config()
-        db, gateway, state_tools = await _setup(config)
+        db, gateway, state_tools = await _setup(config, local=is_local)
         try:
             agent = DiscoveryAgent(
                 db=db,
@@ -110,6 +121,22 @@ def discover(network: str, focus: str | None) -> None:
             click.echo(f"  LLM tokens:    {result.llm_tokens_used}")
             if result.summary:
                 click.echo(f"\nSummary:\n{result.summary}")
+
+            if is_local and isinstance(db, LocalDiscoveryStore):
+                data = db.get_results()
+                hosts = data.get("hosts", [])
+                if hosts:
+                    click.echo(f"\n{'IP':<20} {'PORT':<8} {'SERVICE':<14} {'NEW'}")
+                    click.echo("-" * 52)
+                    for h in hosts:
+                        ip = h.get("ip_address") or h.get("hostname") or "-"
+                        port = str(h.get("port") or "-")
+                        svc = h.get("service_type") or "-"
+                        click.echo(f"  {ip:<18} {port:<8} {svc:<14}")
+                if output:
+                    output_path = Path(output)
+                    output_path.write_text(json.dumps(data, indent=2, default=str))
+                    click.echo(f"\nResults saved to {output_path}")
         finally:
             await db.close()
             await gateway.close()
