@@ -54,7 +54,7 @@ ferret diff --network sui --since 2026-02-17
 ```
 
 > [!NOTE]
-> Commands assume `PYTHONPATH=.` or package installation. The `ferret` CLI is an alias for `python -m src`.
+> Commands assume package installation. Without it, use `python -m src.cli` instead of `ferret`. (`python -m src` starts the HTTP server, not the CLI.)
 
 ### Local mode (no API backend required)
 
@@ -62,13 +62,16 @@ Run a discovery session without a running `discovery-service`. Results are store
 
 ```bash
 # Print results to stdout only
-PYTHONPATH=. python -m src discover --network cosmos --local
+python -m src.cli discover --network cosmos --local
 
 # Save results to a JSON file
-PYTHONPATH=. python -m src discover --network cosmos --local --output cosmos.json
+python -m src.cli discover --network cosmos --local --output cosmos.json
 ```
 
 `--output` implies `--local` — you don't need both flags. The JSON file contains the full run: hosts, validators, stats, and the agent's summary.
+
+> [!NOTE]
+> `python -m src` starts the HTTP server. Use `python -m src.cli` for the CLI.
 
 ## How It Works
 
