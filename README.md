@@ -8,7 +8,7 @@ Networks like Sui and Solana expose validator IP addresses on-chain, but operato
 
 ## Features
 
-- **On-chain seeding** - pulls validator addresses directly from chain RPC (Sui, Solana)
+- **On-chain seeding** - pulls validator addresses directly from chain RPC (Sui, Solana, Cosmos Hub)
 - **Batch enrichment** - ASN lookups, reverse DNS, and IP clustering with no LLM required
 - **LLM OSINT loop** - autonomous agent uses CT logs, WHOIS, GitHub search to discover related hosts
 - **Tool budget controls** - configurable limits on tool calls, idle rounds, and new host caps to prevent runaway spend
@@ -75,6 +75,7 @@ Results are written to the Discovery API for use by downstream scanning and prot
 | `DISCOVERY_LLM_MODEL` | `deepseek-chat` | Model (must support tool calls) |
 | `DISCOVERY_SUI_RPC` | `https://fullnode.mainnet.sui.io:443` | Sui RPC endpoint |
 | `DISCOVERY_SOLANA_RPC` | `https://api.mainnet-beta.solana.com` | Solana RPC endpoint |
+| `DISCOVERY_COSMOS_RPC` | `https://cosmos-rpc.publicnode.com` | Cosmos Hub RPC endpoint |
 | `DISCOVERY_MAX_TOOL_CALLS` | `30` | LLM tool call budget per run |
 | `DISCOVERY_MAX_NEW_HOSTS` | `10` | Stop after N new hosts |
 | `DISCOVERY_MAX_IDLE_CALLS` | `15` | Stop after N calls with no discovery |
@@ -154,7 +155,8 @@ src/
     └── blockchain/
         ├── base.py       # ChainTools abstract base
         ├── sui.py        # Sui mainnet
-        └── solana.py     # Solana mainnet
+        ├── solana.py     # Solana mainnet
+        └── cosmos.py     # Cosmos Hub mainnet
 ```
 
 ## Running Tests

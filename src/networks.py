@@ -12,6 +12,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, HttpUrl, field_validator
 
+from src.tools.blockchain.cosmos import CosmosTools
 from src.tools.blockchain.solana import SolanaTools
 from src.tools.blockchain.sui import SuiTools
 
@@ -50,6 +51,7 @@ class NetworkConfig(BaseModel):
 _CLASS_MAP: dict[str, type] = {
     "sui": SuiTools,
     "solana": SolanaTools,
+    "cosmos": CosmosTools,
 }
 
 

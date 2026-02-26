@@ -11,5 +11,11 @@
     "default_rpc_url": "https://api.mainnet-beta.solana.com",
     "allowed_ports": [8000, 8001, 8002, 8003, 8899, 8900, 9900, 8328],
     "description": "Solana mainnet cluster nodes"
+  },
+  "cosmos": {
+    "env_var": "DISCOVERY_COSMOS_RPC",
+    "default_rpc_url": "https://cosmos-rpc.publicnode.com",
+    "allowed_ports": [26656, 26657, 1317, 9090, 9091, 26660],
+    "description": "Cosmos Hub mainnet validator nodes"
   }
 }
