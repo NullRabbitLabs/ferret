@@ -13,10 +13,10 @@ from src.server import app
 from datetime import datetime, timezone
 
 
-def _make_run(run_id=None, network_id=None):
+def _make_run(run_id=None, network_name="sui"):
     return DiscoveryRun(
         id=run_id or uuid4(),
-        network_id=network_id or uuid4(),
+        network_name=network_name,
         started_at=datetime.now(timezone.utc),
         status="running",
     )
@@ -25,13 +25,6 @@ def _make_run(run_id=None, network_id=None):
 @pytest.fixture
 def mock_api_client():
     client = AsyncMock()
-    client.get_network.return_value = {
-        "id": uuid4(),
-        "name": "sui",
-        "chain_type": "sui",
-        "rpc_endpoints": ["https://fullnode.mainnet.sui.io:443"],
-        "enabled": True,
-    }
     client.create_discovery_run.return_value = _make_run()
     client.close = AsyncMock()
     return client
@@ -96,12 +89,9 @@ async def test_discover_with_focus(mock_api_client):
         captured_coro.close()
 
 
-async def test_discover_unknown_network(mock_api_client):
-    mock_api_client.get_network.return_value = None
-
-    with patch("src.server.DiscoveryApiClient", return_value=mock_api_client):
-        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-            resp = await client.post("/discover", json={"network": "unknown-chain"})
+async def test_discover_unknown_network():
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.post("/discover", json={"network": "unknown-chain"})
 
     assert resp.status_code == 404
     assert "unknown-chain" in resp.json()["detail"]

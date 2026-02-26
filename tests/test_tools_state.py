@@ -94,15 +94,6 @@ async def test_get_known_hosts_no_note_when_under_limit(state_tools, mock_db):
     assert "note" not in result, "no truncation note when results fit within limit"
 
 
-@pytest.mark.asyncio
-async def test_get_known_hosts_unknown_network(state_tools, mock_db):
-    mock_db.get_network_id.return_value = None
-
-    result = await state_tools.get_known_hosts(network="unknownchain")
-
-    assert "error" in result
-    assert "unknownchain" in result["error"]
-
 
 @pytest.mark.asyncio
 async def test_get_known_validators_returns_list(state_tools, mock_db):

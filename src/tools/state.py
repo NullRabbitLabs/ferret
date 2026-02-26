@@ -85,10 +85,6 @@ class StateTools:
         run_id: str | None = None,
         **kwargs,
     ) -> dict:
-        network_id = await self._db.get_network_id(network)
-        if not network_id:
-            return {"error": f"Unknown network: {network!r}"}
-
         filters = filters or {}
         not_seen_since = None
         if "not_seen_since" in filters:
@@ -98,7 +94,7 @@ class StateTools:
                 return {"error": f"Invalid not_seen_since format: {filters['not_seen_since']!r}"}
 
         hosts = await self._db.get_hosts(
-            network_id,
+            network,
             operator_name=filters.get("operator_name"),
             service_type=filters.get("service_type"),
             min_confidence=filters.get("min_confidence"),
@@ -149,11 +145,7 @@ class StateTools:
     async def get_known_validators(
         self, network: str, run_id: str | None = None, **kwargs
     ) -> dict:
-        network_id = await self._db.get_network_id(network)
-        if not network_id:
-            return {"error": f"Unknown network: {network!r}"}
-
-        validators = await self._db.get_validators(network_id)
+        validators = await self._db.get_validators(network)
         # Return compact summaries — full pubkeys are too long for context
         compact = [
             {
@@ -181,16 +173,12 @@ class StateTools:
         run_id: str | None = None,
         **kwargs,
     ) -> dict:
-        network_id = await self._db.get_network_id(network)
-        if not network_id:
-            return {"error": f"Unknown network: {network!r}"}
-
         validator_id: UUID | None = None
         if validator_pubkey:
-            validator_id = await self._db.get_or_create_validator(network_id, validator_pubkey)
+            validator_id = await self._db.get_or_create_validator(network, validator_pubkey)
 
         host_id, is_new = await self._db.upsert_host(
-            network_id,
+            network,
             ip_address,
             port,
             protocol=protocol,
@@ -223,10 +211,6 @@ class StateTools:
         **kwargs,
     ) -> dict:
         """Import multiple hosts in a single call. Use for on-chain bulk imports."""
-        network_id = await self._db.get_network_id(network)
-        if not network_id:
-            return {"error": f"Unknown network: {network!r}"}
-
         total_new = 0
         total_updated = 0
         errors: list[dict] = []
@@ -240,14 +224,14 @@ class StateTools:
             validator_id = None
             if h.get("validator_pubkey"):
                 validator_id = await self._db.get_or_create_validator(
-                    network_id,
+                    network,
                     h["validator_pubkey"],
                     operator_name=h.get("operator_name"),
                 )
 
             try:
                 host_id, is_new = await self._db.upsert_host(
-                    network_id,
+                    network,
                     ip,
                     h.get("port"),
                     protocol=h.get("protocol"),
@@ -325,14 +309,10 @@ class StateTools:
         run_id: str | None = None,
         **kwargs,
     ) -> dict:
-        network_id = await self._db.get_network_id(network)
-        if not network_id:
-            return {"error": f"Unknown network: {network!r}"}
-
         try:
             since_dt = datetime.fromisoformat(since.replace("Z", "+00:00"))
         except ValueError:
             return {"error": f"Invalid 'since' datetime: {since!r}"}
 
-        diff = await self._db.get_discovery_diff(network_id, since_dt)
+        diff = await self._db.get_discovery_diff(network, since_dt)
         return diff

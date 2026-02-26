@@ -13,8 +13,7 @@ class Config:
     discovery_api_url: str
     llm_gateway_url: str
     llm_model: str
-    sui_rpc_url: str
-    solana_rpc_url: str
+    rpc_urls: dict[str, str]
     max_tool_calls: int
     max_new_hosts: int
     max_idle_calls: int
@@ -27,6 +26,12 @@ class Config:
 
     @classmethod
     def from_env(cls) -> "Config":
+        from src.networks import NETWORK_DEFINITIONS
+
+        rpc_urls = {
+            name: os.environ.get(env_var, default)
+            for name, (_, env_var, default) in NETWORK_DEFINITIONS.items()
+        }
         return cls(
             discovery_api_url=os.environ.get(
                 "DISCOVERY_API_URL",
@@ -35,12 +40,7 @@ class Config:
             llm_gateway_url=os.environ.get("LLM_GATEWAY_URL", "http://localhost:8090"),
             # deepseek-chat (V3) supports tool calls; deepseek-reasoner (R1) does not
             llm_model=os.environ.get("DISCOVERY_LLM_MODEL", "deepseek-chat"),
-            sui_rpc_url=os.environ.get(
-                "DISCOVERY_SUI_RPC", "https://fullnode.mainnet.sui.io:443"
-            ),
-            solana_rpc_url=os.environ.get(
-                "DISCOVERY_SOLANA_RPC", "https://api.mainnet-beta.solana.com"
-            ),
+            rpc_urls=rpc_urls,
             max_tool_calls=int(os.environ.get("DISCOVERY_MAX_TOOL_CALLS", "30")),
             max_new_hosts=int(os.environ.get("DISCOVERY_MAX_NEW_HOSTS", "10")),
             max_idle_calls=int(os.environ.get("DISCOVERY_MAX_IDLE_CALLS", "15")),

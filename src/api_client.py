@@ -1,12 +1,7 @@
 """
 HTTP client for discovery-service.
 
-Provides the same interface as the old Database class so agent.py and state.py
-need only import path changes — no logic changes.
-
-The service API uses network names in URLs (e.g. /networks/{name}/hosts) but
-the Database interface uses UUIDs. This client caches UUID→name mappings
-from get_network() / get_network_id() calls, which always precede UUID-based calls.
+Network names are used directly in all API calls — no UUID lookups needed.
 """
 
 from datetime import datetime
@@ -19,65 +14,25 @@ from src.db import DiscoveryRun, DiscoveryRunResult
 
 
 class DiscoveryApiClient:
-    """
-    HTTP client wrapping the discovery-service REST API.
-
-    Same method signatures as the old Database class.
-    """
+    """HTTP client wrapping the discovery-service REST API."""
 
     def __init__(self, base_url: str, timeout: float = 30.0) -> None:
         self._base_url = base_url.rstrip("/")
         self._client = httpx.AsyncClient(base_url=self._base_url, timeout=timeout)
-        self._name_cache: dict[UUID, str] = {}  # network_id → network_name
 
     async def close(self) -> None:
         await self._client.aclose()
 
-    # ── Network ──────────────────────────────────────────────────────────────
-
-    async def get_network_id(self, name: str) -> UUID | None:
-        """Look up a network UUID by name."""
-        resp = await self._client.get(f"/networks/{name}")
-        if resp.status_code == 404:
-            return None
-        resp.raise_for_status()
-        data = resp.json()
-        uid = UUID(str(data["id"]))
-        self._name_cache[uid] = name
-        return uid
-
-    async def get_network(self, name: str) -> dict | None:
-        """Return full network record as dict."""
-        resp = await self._client.get(f"/networks/{name}")
-        if resp.status_code == 404:
-            return None
-        resp.raise_for_status()
-        data = resp.json()
-        uid = UUID(str(data["id"]))
-        data["id"] = uid
-        self._name_cache[uid] = name
-        return data
-
-    def _name(self, network_id: UUID) -> str:
-        """Resolve network name from cache (populated by prior get_network* calls)."""
-        name = self._name_cache.get(network_id)
-        if not name:
-            raise RuntimeError(
-                f"Network name for {network_id} not in cache. "
-                "Call get_network() or get_network_id() first."
-            )
-        return name
-
     # ── Discovery Runs ────────────────────────────────────────────────────────
 
-    async def create_discovery_run(self, network_id: UUID) -> DiscoveryRun:
+    async def create_discovery_run(self, network_name: str) -> DiscoveryRun:
         """Create a new discovery run and return it."""
-        resp = await self._client.post("/runs", json={"network_id": str(network_id)})
+        resp = await self._client.post("/runs", json={"network_name": network_name})
         resp.raise_for_status()
         data = resp.json()
         return DiscoveryRun(
             id=UUID(data["run_id"]),
-            network_id=UUID(data["network_id"]),
+            network_name=data.get("network_name", network_name),
             started_at=datetime.fromisoformat(data["started_at"]),
             status=data["status"],
         )
@@ -128,7 +83,7 @@ class DiscoveryApiClient:
 
     async def upsert_host(
         self,
-        network_id: UUID,
+        network_name: str,
         ip_address: str | None,
         port: int | None,
         *,
@@ -142,7 +97,7 @@ class DiscoveryApiClient:
     ) -> tuple[UUID, bool]:
         """Upsert a host. Returns (host_id, is_new)."""
         body: dict[str, Any] = {
-            "network_id": str(network_id),
+            "network_name": network_name,
             "confidence": confidence,
         }
         if ip_address is not None:
@@ -178,7 +133,7 @@ class DiscoveryApiClient:
 
     async def get_hosts(
         self,
-        network_id: UUID,
+        network_name: str,
         *,
         operator_name: str | None = None,
         service_type: str | None = None,
@@ -188,7 +143,6 @@ class DiscoveryApiClient:
         limit: int = 500,
     ) -> list[dict]:
         """Query hosts with optional filters."""
-        name = self._name(network_id)
         params: dict[str, Any] = {"limit": limit}
         if operator_name is not None:
             params["operator_name"] = operator_name
@@ -201,24 +155,23 @@ class DiscoveryApiClient:
         if not_seen_since is not None:
             params["not_seen_since"] = not_seen_since.isoformat()
 
-        resp = await self._client.get(f"/networks/{name}/hosts", params=params)
+        resp = await self._client.get(f"/networks/{network_name}/hosts", params=params)
         resp.raise_for_status()
         return resp.json()
 
     # ── Validators ────────────────────────────────────────────────────────────
 
-    async def get_validators(self, network_id: UUID) -> list[dict]:
+    async def get_validators(self, network_name: str) -> list[dict]:
         """Return all validators for a network."""
-        name = self._name(network_id)
-        resp = await self._client.get(f"/networks/{name}/validators")
+        resp = await self._client.get(f"/networks/{network_name}/validators")
         resp.raise_for_status()
         return resp.json().get("validators", [])
 
     async def get_or_create_validator(
-        self, network_id: UUID, pubkey: str, operator_name: str | None = None
+        self, network_name: str, pubkey: str, operator_name: str | None = None
     ) -> UUID:
         """Get or create a validator."""
-        body: dict[str, Any] = {"network_id": str(network_id), "pubkey": pubkey}
+        body: dict[str, Any] = {"network_name": network_name, "pubkey": pubkey}
         if operator_name is not None:
             body["operator_name"] = operator_name
         resp = await self._client.post("/validators", json=body)
@@ -228,12 +181,11 @@ class DiscoveryApiClient:
     # ── Hypotheses + Diff ─────────────────────────────────────────────────────
 
     async def get_discovery_diff(
-        self, network_id: UUID, since: datetime
+        self, network_name: str, since: datetime
     ) -> dict:
         """Return diff since the given timestamp."""
-        name = self._name(network_id)
         resp = await self._client.get(
-            f"/networks/{name}/diff",
+            f"/networks/{network_name}/diff",
             params={"since": since.isoformat()},
         )
         resp.raise_for_status()
@@ -274,11 +226,10 @@ class DiscoveryApiClient:
         resp.raise_for_status()
         return resp.json().get("results", [])
 
-    async def get_recent_runs(self, network_id: UUID, limit: int = 5) -> list[dict]:
+    async def get_recent_runs(self, network_name: str, limit: int = 5) -> list[dict]:
         """Return recent discovery runs for a network."""
-        name = self._name(network_id)
         resp = await self._client.get(
-            f"/networks/{name}/runs",
+            f"/networks/{network_name}/runs",
             params={"limit": limit},
         )
         resp.raise_for_status()

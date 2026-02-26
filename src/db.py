@@ -13,7 +13,7 @@ from uuid import UUID
 @dataclass
 class DiscoveryRun:
     id: UUID
-    network_id: UUID
+    network_name: str
     started_at: datetime
     status: str = "running"
     hosts_discovered: int = 0

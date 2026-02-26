@@ -8,7 +8,7 @@ Provides:
 
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 import pytest
 
@@ -21,21 +21,11 @@ from src.gateway_client import DiscoveryGatewayClient, GatewayResponse, ToolCall
 def mock_db():
     """Mock DiscoveryApiClient with sensible defaults."""
     db = AsyncMock(spec=DiscoveryApiClient)
-    network_id = uuid4()
     run_id = uuid4()
 
-    db.get_network_id.return_value = network_id
-    db.get_network.return_value = {
-        "id": network_id,
-        "name": "sui",
-        "chain_type": "sui",
-        "rpc_endpoints": ["https://fullnode.mainnet.sui.io:443"],
-        "enabled": True,
-        "discovery_config": {"ports": [8080, 8081, 8082, 8083, 8084, 9184, 1337]},
-    }
     db.create_discovery_run.return_value = DiscoveryRun(
         id=run_id,
-        network_id=network_id,
+        network_name="sui",
         started_at=datetime.now(timezone.utc),
     )
     db.get_validators.return_value = []

@@ -25,8 +25,7 @@ from src.agent import DiscoveryAgent
 from src.api_client import DiscoveryApiClient
 from src.config import Config
 from src.gateway_client import DiscoveryGatewayClient
-from src.tools.blockchain.solana import SolanaTools
-from src.tools.blockchain.sui import SuiTools
+from src.networks import NETWORK_DEFINITIONS
 from src.tools.dns import DnsLookupTool, ReverseDnsTool
 from src.tools.network import (
     AsnLookupTool,
@@ -49,10 +48,9 @@ async def _setup(config: Config) -> tuple[DiscoveryApiClient, DiscoveryGatewayCl
     gateway = DiscoveryGatewayClient(config.llm_gateway_url, model=config.llm_model)
 
     # Register blockchain tools
-    if "sui" not in NetworkRegistry.registered_chains():
-        NetworkRegistry.register("sui", SuiTools(rpc_url=config.sui_rpc_url))
-    if "solana" not in NetworkRegistry.registered_chains():
-        NetworkRegistry.register("solana", SolanaTools(rpc_url=config.solana_rpc_url))
+    for chain_name, (tools_cls, _, __) in NETWORK_DEFINITIONS.items():
+        if chain_name not in NetworkRegistry.registered_chains():
+            NetworkRegistry.register(chain_name, tools_cls(rpc_url=config.rpc_urls[chain_name]))
 
     # Register universal tools (dns, network, osint) — only once per process
     if not NetworkRegistry.get_universal_tool_map():
@@ -133,9 +131,8 @@ def inventory(network: str, stale_since: str | None) -> None:
         config = _get_config()
         db, _, _ = await _setup(config)
         try:
-            network_id = await db.get_network_id(network)
-            if not network_id:
-                click.echo(f"Unknown network: {network}", err=True)
+            if network not in NETWORK_DEFINITIONS:
+                click.echo(f"Unknown network: {network!r}", err=True)
                 return
 
             not_seen_since = None
@@ -144,7 +141,7 @@ def inventory(network: str, stale_since: str | None) -> None:
                 not_seen_since = datetime.now(timezone.utc) - timedelta(days=days)
 
             hosts = await db.get_hosts(
-                network_id,
+                network,
                 is_active=True,
                 not_seen_since=not_seen_since,
             )
@@ -172,12 +169,11 @@ def runs(network: str, last: int) -> None:
         config = _get_config()
         db, _, _ = await _setup(config)
         try:
-            network_id = await db.get_network_id(network)
-            if not network_id:
-                click.echo(f"Unknown network: {network}", err=True)
+            if network not in NETWORK_DEFINITIONS:
+                click.echo(f"Unknown network: {network!r}", err=True)
                 return
 
-            recent = await db.get_recent_runs(network_id, limit=last)
+            recent = await db.get_recent_runs(network, limit=last)
             click.echo(f"Recent runs for {network}:")
             for r in recent:
                 started = str(r["started_at"])[:16]
@@ -205,16 +201,15 @@ def diff(network: str, since: str) -> None:
         config = _get_config()
         db, _, _ = await _setup(config)
         try:
-            network_id = await db.get_network_id(network)
-            if not network_id:
-                click.echo(f"Unknown network: {network}", err=True)
+            if network not in NETWORK_DEFINITIONS:
+                click.echo(f"Unknown network: {network!r}", err=True)
                 return
 
             since_dt = datetime.fromisoformat(since.replace("Z", "+00:00"))
             if since_dt.tzinfo is None:
                 since_dt = since_dt.replace(tzinfo=timezone.utc)
 
-            result = await db.get_discovery_diff(network_id, since_dt)
+            result = await db.get_discovery_diff(network, since_dt)
             click.echo(f"Diff for {network} since {since}:")
             click.echo(f"  New hosts:       {len(result['new_hosts'])}")
             click.echo(f"  Gone hosts:      {len(result['gone_hosts'])}")

@@ -508,12 +508,9 @@ async def test_batch_enrich_returns_cluster_summary(mock_db, mock_gateway, state
     async def _mock_rdns(ip_address, **kwargs):
         return {"ip_address": ip_address, "hostnames": [f"host.{ip_address}.example.com"]}
 
-    from uuid import uuid4
-    network_id = uuid4()
-
     with patch("src.agent.NetworkRegistry.get_universal_tool_map") as mock_map:
         mock_map.return_value = {"asn_lookup": _mock_asn, "reverse_dns": _mock_rdns}
-        result = await agent._batch_enrich(network_id)
+        result = await agent._batch_enrich("sui")
 
     assert result["total_hosts"] == 2
     assert result["sampled"] == 2
@@ -528,7 +525,6 @@ async def test_batch_enrich_returns_cluster_summary(mock_db, mock_gateway, state
 async def test_batch_enrich_handles_missing_tools(mock_db, mock_gateway, state_tools, registered_registry):
     from src.agent import DiscoveryAgent
     from unittest.mock import patch
-    from uuid import uuid4
 
     agent = DiscoveryAgent(db=mock_db, gateway=mock_gateway, state_tools=state_tools)
     mock_db.get_hosts.return_value = [
@@ -538,7 +534,7 @@ async def test_batch_enrich_handles_missing_tools(mock_db, mock_gateway, state_t
 
     with patch("src.agent.NetworkRegistry.get_universal_tool_map") as mock_map:
         mock_map.return_value = {}  # no tools registered
-        result = await agent._batch_enrich(uuid4())
+        result = await agent._batch_enrich("sui")
 
     assert result["clusters"] == []
 
@@ -552,7 +548,6 @@ async def test_batch_enrich_includes_hostname_only_without_dns_resolution(mock_d
     """Hostname-only hosts appear in hostname_only list — NOT resolved to IPs."""
     from src.agent import DiscoveryAgent
     from unittest.mock import patch
-    from uuid import uuid4
 
     agent = DiscoveryAgent(db=mock_db, gateway=mock_gateway, state_tools=state_tools)
 
@@ -581,7 +576,7 @@ async def test_batch_enrich_includes_hostname_only_without_dns_resolution(mock_d
             "reverse_dns": _mock_rdns,
             "dns_lookup": _mock_dns,
         }
-        result = await agent._batch_enrich(uuid4())
+        result = await agent._batch_enrich("sui")
 
     assert dns_called == [], "forward DNS resolution must NOT be called"
     assert result["total_hosts"] == 2
@@ -596,7 +591,6 @@ async def test_batch_enrich_ip_hosts_still_get_asn_clusters(mock_db, mock_gatewa
     """IP-based hosts continue to be clustered by ASN."""
     from src.agent import DiscoveryAgent
     from unittest.mock import patch
-    from uuid import uuid4
 
     agent = DiscoveryAgent(db=mock_db, gateway=mock_gateway, state_tools=state_tools)
 
@@ -613,7 +607,7 @@ async def test_batch_enrich_ip_hosts_still_get_asn_clusters(mock_db, mock_gatewa
 
     with patch("src.agent.NetworkRegistry.get_universal_tool_map") as mock_map:
         mock_map.return_value = {"asn_lookup": _mock_asn, "reverse_dns": _mock_rdns}
-        result = await agent._batch_enrich(uuid4())
+        result = await agent._batch_enrich("sui")
 
     assert len(result["clusters"]) == 1
     assert result["clusters"][0]["asn"] == "AS24940"

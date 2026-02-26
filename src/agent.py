@@ -33,6 +33,7 @@ _CODE_ONLY_TOOLS = {"asn_lookup", "reverse_dns", "get_known_hosts", "bulk_report
 from src.api_client import DiscoveryApiClient as Database
 from src.db import DiscoveryRun, DiscoveryRunResult
 from src.gateway_client import DiscoveryGatewayClient, GatewayResponse, ToolCall
+from src.networks import NETWORK_DEFINITIONS
 from src.tools.registry import NetworkRegistry
 from src.tools.state import StateTools
 
@@ -94,17 +95,15 @@ class DiscoveryAgent:
         self._get_hosts_calls = 0
         self._ct_failures = 0
 
-        network_record = await self._db.get_network(network)
-        if not network_record:
+        if network not in NETWORK_DEFINITIONS:
             raise ValueError(f"Unknown network: {network!r}")
 
-        chain_type = network_record["chain_type"]
-        network_id: UUID = network_record["id"]
+        chain_type = network  # chain type == network name in the registry
 
         if existing_run_id is not None:
             run_id = existing_run_id
         else:
-            _run = await self._db.create_discovery_run(network_id)
+            _run = await self._db.create_discovery_run(network)
             run_id = _run.id
         run_id_str = str(run_id)
         self._state_tools.init_run_stats(run_id_str)
@@ -122,6 +121,7 @@ class DiscoveryAgent:
         ]
 
         def _emit(msg: str) -> None:
+            logger.info(msg)
             if on_event:
                 on_event(msg)
 
@@ -145,14 +145,14 @@ class DiscoveryAgent:
 
         # ── Phase 1b: Batch enrichment (ASN + reverse DNS) ────────────────────
         _emit("\nBatch enrichment (ASN + reverse DNS)...")
-        enrich = await self._batch_enrich(network_id)
+        enrich = await self._batch_enrich(network)
         _emit(
             f"  Sampled {enrich['sampled']} of {enrich['total_hosts']} IPs"
             f" → {len(enrich['clusters'])} ASN clusters"
         )
 
         # ── Phase 2: LLM OSINT loop ───────────────────────────────────────────
-        system_prompt = await self._build_system_prompt(network, network_id, focus)
+        system_prompt = await self._build_system_prompt(network, focus)
         messages: list[dict] = [
             {"role": "user", "content": self._build_initial_directive(network, seed_result, enrich, focus)}
         ]
@@ -342,14 +342,14 @@ class DiscoveryAgent:
             summary=summary,
         )
 
-    async def _batch_enrich(self, network_id: UUID, max_ips: int = 100) -> dict:
+    async def _batch_enrich(self, network_name: str, max_ips: int = 100) -> dict:
         """
         Run ASN + reverse DNS for unique IPs in code (no LLM).
 
         Caps at max_ips so large networks (Solana: 10k+ hosts) stay fast.
         Returns a cluster summary grouped by ASN for the LLM's initial context.
         """
-        hosts = await self._db.get_hosts(network_id, is_active=True)
+        hosts = await self._db.get_hosts(network_name, is_active=True)
         total_hosts = len(hosts)
 
         seen: set[str] = set()
@@ -444,11 +444,11 @@ class DiscoveryAgent:
         return tool_map
 
     async def _build_system_prompt(
-        self, network: str, network_id: UUID, focus: str | None
+        self, network: str, focus: str | None
     ) -> str:
-        validators = await self._db.get_validators(network_id)
-        hosts = await self._db.get_hosts(network_id, is_active=True)
-        runs = await self._db.get_recent_runs(network_id, limit=1)
+        validators = await self._db.get_validators(network)
+        hosts = await self._db.get_hosts(network, is_active=True)
+        runs = await self._db.get_recent_runs(network, limit=1)
         last_run = str(runs[0]["started_at"])[:19] if runs else "Never"
 
         return _SYSTEM_PROMPT_TEMPLATE.format(
