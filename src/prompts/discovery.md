@@ -37,8 +37,11 @@ then use OSINT tools to find infrastructure not yet in the inventory:
    Search for Sui fullnode configs, docker-compose files, or ansible playbooks
    that contain IP addresses or hostnames. Search for public RPC provider
    endpoints (Shinami, BlockVision, QuickNode, Alchemy, etc.).
-4. **sui_enumerate_peers** — scrape Prometheus metrics from a known Sui node to
-   discover connected peer IPs. Use this if you know a node's metrics endpoint.
+4. **sui_enumerate_peers** — scrape Prometheus metrics from a Sui node to
+   discover connected peer IPs. Sui nodes expose Prometheus on port 9184
+   (e.g. `http://<ip>:9184/metrics`). Try known validator or fullnode IPs
+   from the inventory — not all will have metrics open, but some will.
+   Each successful scrape can reveal dozens of new peer IPs.
 5. **report_discovered_host** — report any new IP you find with confidence ≥ 0.5.
 6. **flag_host_gone** — flag hosts that no longer appear in on-chain data.
 
