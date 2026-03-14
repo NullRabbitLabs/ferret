@@ -111,12 +111,12 @@ class DiscoveryAgent:
         chain_tools = NetworkRegistry.get_chain_tools(chain_type)
         tool_map = self._build_tool_map(chain_type, run_id_str)
 
-        # LLM tools: exclude chain-specific fetch tools (seeded in code)
+        # LLM tools: exclude seeding-only chain tools (called in Phase 1 code)
         # and exclude code-only tools (ASN/DNS run in code, bulk import, etc.).
-        chain_schema_names = {s["function"]["name"] for s in chain_tools.schemas()}
+        seeding_only = chain_tools.seeding_only_tools()
         tool_schemas = [
             s for s in NetworkRegistry.get_all_tool_schemas(chain_type)
-            if s["function"]["name"] not in chain_schema_names
+            if s["function"]["name"] not in seeding_only
             and s["function"]["name"] not in _CODE_ONLY_TOOLS
         ]
 

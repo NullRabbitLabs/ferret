@@ -42,6 +42,14 @@ class ChainTools(ABC):
     def primary_tool_name(self) -> str:
         """Return the tool name to call first to get the validator/node set."""
 
+    def seeding_only_tools(self) -> set[str]:
+        """Tool names used only in Phase 1 code seeding — excluded from LLM tool list.
+
+        Default: all tools in schemas(). Override to keep some tools available
+        to the LLM (e.g. sui_enumerate_peers).
+        """
+        return {s["function"]["name"] for s in self.schemas()}
+
     @abstractmethod
     async def get_seed_hosts(self, network: str) -> list[dict]:
         """Fetch on-chain data and return hosts ready for bulk_report_discovered_hosts."""

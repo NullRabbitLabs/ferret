@@ -402,3 +402,11 @@ def test_enumerate_peers_in_schemas(sui_tools):
     """sui_enumerate_peers should appear in the tool schemas."""
     schema_names = [s["function"]["name"] for s in sui_tools.schemas()]
     assert "sui_enumerate_peers" in schema_names
+
+
+def test_seeding_only_tools_excludes_enumerate_peers(sui_tools):
+    """sui_enumerate_peers must NOT be in seeding_only_tools — it's for the LLM."""
+    seeding = sui_tools.seeding_only_tools()
+    assert "sui_get_validators" in seeding
+    assert "sui_get_committee" in seeding
+    assert "sui_enumerate_peers" not in seeding

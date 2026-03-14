@@ -125,6 +125,10 @@ class SuiTools(ChainTools):
     def primary_tool_name(self) -> str:
         return "sui_get_validators"
 
+    def seeding_only_tools(self) -> set[str]:
+        """Only exclude validator/committee fetch — keep enumerate_peers for LLM."""
+        return {"sui_get_validators", "sui_get_committee"}
+
     async def get_seed_hosts(self, network: str) -> list[dict]:
         """Fetch validators + seed peers and return merged, deduplicated host list.
 
