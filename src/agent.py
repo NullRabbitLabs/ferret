@@ -30,6 +30,10 @@ _LIST_KEYS = ("hosts", "validators", "results", "records", "committee")
 # - bulk_report_discovered_hosts: internal batch import, not for LLM use
 _CODE_ONLY_TOOLS = {"asn_lookup", "reverse_dns", "get_known_hosts", "bulk_report_discovered_hosts"}
 
+# Tools that probe live infrastructure — connection errors are expected,
+# so failures don't count toward the idle-call early-stop threshold.
+_PROBING_TOOLS = {"sui_enumerate_peers", "subnet_probe"}
+
 from src.api_client import DiscoveryApiClient as Database
 from src.db import DiscoveryRun, DiscoveryRunResult
 from src.gateway_client import DiscoveryGatewayClient, GatewayResponse, ToolCall
@@ -231,6 +235,10 @@ class DiscoveryAgent:
                         idle_calls = 0
                     else:
                         idle_calls += 1
+                elif tc.name in _PROBING_TOOLS:
+                    # Exploratory probing (e.g. enumerate_peers) — connection
+                    # refused is expected; don't penalise the idle counter.
+                    pass
                 else:
                     idle_calls += 1
 
