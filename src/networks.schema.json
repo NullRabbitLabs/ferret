@@ -20,6 +20,10 @@
         "required": ["env_var", "default_rpc_url", "allowed_ports", "description"],
         "additionalProperties": false,
         "properties": {
+          "chain_type": {
+            "type": "string",
+            "description": "Override class lookup key — allows multiple networks (e.g. sui-testnet) to share one ChainTools class (e.g. sui)"
+          },
           "env_var": {
             "type": "string",
             "pattern": "^[A-Z][A-Z0-9_]*$",

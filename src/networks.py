@@ -23,6 +23,7 @@ class NetworkConfig(BaseModel):
     default_rpc_url: str
     allowed_ports: list[int]
     description: str = ""
+    chain_type: str | None = None
 
     @field_validator("default_rpc_url")
     @classmethod
@@ -66,12 +67,13 @@ def _build_network_definitions(
         class_registry = ChainTools._registry
     result = {}
     for name, cfg in configs.items():
-        if name not in class_registry:
+        ct = cfg.chain_type or name
+        if ct not in class_registry:
             raise KeyError(
-                f"Network {name!r} is in networks.json but has no ChainTools subclass. "
-                f"Create src/tools/blockchain/{name}.py with a ChainTools subclass."
+                f"Network {name!r} (chain_type={ct!r}) has no ChainTools subclass. "
+                f"Create src/tools/blockchain/{ct}.py with a ChainTools subclass."
             )
-        result[name] = (class_registry[name], cfg.env_var, cfg.default_rpc_url)
+        result[name] = (class_registry[ct], cfg.env_var, cfg.default_rpc_url)
     return result
 
 

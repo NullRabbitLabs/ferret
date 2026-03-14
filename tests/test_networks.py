@@ -136,3 +136,68 @@ def test_all_allowed_ports_is_union_of_all_networks():
 
 def test_default_allowed_ports_matches_all_allowed_ports():
     assert DEFAULT_ALLOWED_PORTS == ALL_ALLOWED_PORTS
+
+
+# --- chain_type indirection (testnet/devnet support) ---
+
+
+def test_chain_type_resolves_to_correct_class():
+    """Network with chain_type='sui' resolves to SuiTools even without a sui-testnet.py."""
+    cfg = NetworkConfig(
+        env_var="DISCOVERY_SUI_TESTNET_RPC",
+        default_rpc_url="https://fullnode.testnet.sui.io:443",
+        allowed_ports=[8080],
+        chain_type="sui",
+    )
+    result = _build_network_definitions(
+        {"sui-testnet": cfg},
+        class_registry={"sui": SuiTools},
+    )
+    tools_cls, env_var, default_url = result["sui-testnet"]
+    assert tools_cls is SuiTools
+    assert env_var == "DISCOVERY_SUI_TESTNET_RPC"
+    assert "testnet" in default_url
+
+
+def test_chain_type_omitted_defaults_to_name():
+    """When chain_type is not set, class is looked up by network name (existing behavior)."""
+    cfg = NetworkConfig(
+        env_var="DISCOVERY_SUI_RPC",
+        default_rpc_url="https://fullnode.mainnet.sui.io:443",
+        allowed_ports=[8080],
+    )
+    result = _build_network_definitions(
+        {"sui": cfg},
+        class_registry={"sui": SuiTools},
+    )
+    assert result["sui"][0] is SuiTools
+
+
+def test_invalid_chain_type_raises_key_error():
+    """chain_type pointing to a non-existent class raises KeyError."""
+    cfg = NetworkConfig(
+        env_var="DISCOVERY_FAKE_RPC",
+        default_rpc_url="https://example.com",
+        allowed_ports=[8080],
+        chain_type="nonexistent",
+    )
+    with pytest.raises(KeyError, match="chain_type='nonexistent'"):
+        _build_network_definitions({"fake-net": cfg}, class_registry={"sui": SuiTools})
+
+
+def test_sui_testnet_in_network_definitions():
+    """sui-testnet should be in NETWORK_DEFINITIONS after networks.json is updated."""
+    assert "sui-testnet" in NETWORK_DEFINITIONS
+    tools_cls, env_var, default_url = NETWORK_DEFINITIONS["sui-testnet"]
+    assert tools_cls is SuiTools
+    assert env_var == "DISCOVERY_SUI_TESTNET_RPC"
+    assert "testnet" in default_url
+
+
+def test_sui_devnet_in_network_definitions():
+    """sui-devnet should be in NETWORK_DEFINITIONS after networks.json is updated."""
+    assert "sui-devnet" in NETWORK_DEFINITIONS
+    tools_cls, env_var, default_url = NETWORK_DEFINITIONS["sui-devnet"]
+    assert tools_cls is SuiTools
+    assert env_var == "DISCOVERY_SUI_DEVNET_RPC"
+    assert "devnet" in default_url

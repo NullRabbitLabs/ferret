@@ -1,10 +1,12 @@
 """
-Tests for Sui blockchain tools: _parse_multiaddr, get_seed_hosts (Fixes #13, #15).
+Tests for Sui blockchain tools: _parse_multiaddr, get_seed_hosts, get_seed_peers,
+enumerate_peers.
 """
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+import yaml
 
 
 # ============================================================
@@ -115,6 +117,15 @@ def sui_tools():
     return SuiTools(rpc_url="https://test.sui.io", cache_ttl=3600)
 
 
+def _make_empty_seed_response():
+    """Return a mock GET response with empty seed peers YAML."""
+    r = MagicMock()
+    r.status_code = 200
+    r.text = "p2p-config:\n  seed-peers: []\n"
+    r.raise_for_status = MagicMock()
+    return r
+
+
 @pytest.mark.asyncio
 async def test_get_seed_hosts_includes_operator_name(sui_tools):
     """operator_name field must be populated from validator 'name'."""
@@ -127,6 +138,7 @@ async def test_get_seed_hosts_includes_operator_name(sui_tools):
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
         mock_client.__aexit__ = AsyncMock(return_value=None)
         mock_client.post = AsyncMock(return_value=mock_response)
+        mock_client.get = AsyncMock(return_value=_make_empty_seed_response())
         mock_client_cls.return_value = mock_client
 
         hosts = await sui_tools.get_seed_hosts("sui")
@@ -161,9 +173,222 @@ async def test_get_seed_hosts_operator_name_none_when_no_name(sui_tools):
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
         mock_client.__aexit__ = AsyncMock(return_value=None)
         mock_client.post = AsyncMock(return_value=mock_response)
+        mock_client.get = AsyncMock(return_value=_make_empty_seed_response())
         mock_client_cls.return_value = mock_client
 
         hosts = await sui_tools.get_seed_hosts("sui")
 
     for h in hosts:
         assert h["operator_name"] is None
+
+
+# ============================================================
+# Seed peers from Sui GitHub config
+# ============================================================
+
+SEED_PEER_YAML = """
+p2p-config:
+  seed-peers:
+    - address: /dns/seed-1.sui.io/udp/8084
+      peer-id: abc123
+    - address: /ip4/10.0.0.1/udp/8084
+      peer-id: def456
+    - address: /dns4/fullnode.example.com/tcp/8080
+      peer-id: ghi789
+"""
+
+
+@pytest.mark.asyncio
+async def test_get_seed_peers_parses_yaml(sui_tools):
+    """get_seed_peers fetches GitHub YAML and parses multiaddr seed entries."""
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.text = SEED_PEER_YAML
+    mock_response.raise_for_status = MagicMock()
+
+    with patch("httpx.AsyncClient") as mock_client_cls:
+        mock_client = AsyncMock()
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=None)
+        mock_client.get = AsyncMock(return_value=mock_response)
+        mock_client_cls.return_value = mock_client
+
+        peers = await sui_tools.get_seed_peers("sui")
+
+    assert len(peers) == 3
+    ips = [p.get("ip_address") for p in peers]
+    hostnames = [p.get("hostname") for p in peers]
+    assert "10.0.0.1" in ips
+    assert "seed-1.sui.io" in hostnames
+    assert "fullnode.example.com" in hostnames
+    for p in peers:
+        assert p["discovery_method"] == "seed_peer"
+        assert p["confidence"] == 0.80
+        assert p["validator_pubkey"] is None
+
+
+@pytest.mark.asyncio
+async def test_get_seed_peers_empty_on_http_error(sui_tools):
+    """get_seed_peers returns empty list on HTTP errors (non-fatal)."""
+    mock_response = MagicMock()
+    mock_response.status_code = 404
+    mock_response.raise_for_status = MagicMock(side_effect=Exception("404"))
+
+    with patch("httpx.AsyncClient") as mock_client_cls:
+        mock_client = AsyncMock()
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=None)
+        mock_client.get = AsyncMock(return_value=mock_response)
+        mock_client_cls.return_value = mock_client
+
+        peers = await sui_tools.get_seed_peers("sui")
+
+    assert peers == []
+
+
+@pytest.mark.asyncio
+async def test_get_seed_peers_skips_unparseable_addresses(sui_tools):
+    """Entries with unparseable multiaddrs are silently skipped."""
+    yaml_data = """
+p2p-config:
+  seed-peers:
+    - address: /onion/hiddenservice/8084
+      peer-id: xxx
+    - address: /ip4/10.0.0.1/udp/8084
+      peer-id: yyy
+"""
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.text = yaml_data
+    mock_response.raise_for_status = MagicMock()
+
+    with patch("httpx.AsyncClient") as mock_client_cls:
+        mock_client = AsyncMock()
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=None)
+        mock_client.get = AsyncMock(return_value=mock_response)
+        mock_client_cls.return_value = mock_client
+
+        peers = await sui_tools.get_seed_peers("sui")
+
+    assert len(peers) == 1
+    assert peers[0]["ip_address"] == "10.0.0.1"
+
+
+# ============================================================
+# get_seed_hosts merges validators + seed peers
+# ============================================================
+
+
+@pytest.mark.asyncio
+async def test_get_seed_hosts_merges_validators_and_seed_peers(sui_tools):
+    """get_seed_hosts returns both validator hosts and seed peers, deduplicated."""
+    # Mock get_validators to return one validator at 1.2.3.4
+    validator_response = MagicMock()
+    validator_response.raise_for_status = MagicMock()
+    validator_response.json.return_value = SUI_VALIDATORS_WITH_NAME
+
+    # Mock get_seed_peers GitHub response with one new peer + one overlapping
+    seed_yaml = """
+p2p-config:
+  seed-peers:
+    - address: /ip4/1.2.3.4/udp/8084
+      peer-id: overlap
+    - address: /ip4/10.0.0.99/udp/8084
+      peer-id: newpeer
+"""
+    seed_response = MagicMock()
+    seed_response.status_code = 200
+    seed_response.text = seed_yaml
+    seed_response.raise_for_status = MagicMock()
+
+    with patch("httpx.AsyncClient") as mock_client_cls:
+        mock_client = AsyncMock()
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=None)
+
+        # First call is get_validators (POST), second is get_seed_peers (GET)
+        mock_client.post = AsyncMock(return_value=validator_response)
+        mock_client.get = AsyncMock(return_value=seed_response)
+        mock_client_cls.return_value = mock_client
+
+        hosts = await sui_tools.get_seed_hosts("sui")
+
+    # Should have validator hosts + one new seed peer (1.2.3.4:8084 is deduplicated)
+    ips = [(h.get("ip_address"), h.get("port")) for h in hosts]
+    assert ("10.0.0.99", 8084) in ips
+    methods = {h["discovery_method"] for h in hosts}
+    assert "on_chain" in methods
+    assert "seed_peer" in methods
+
+
+# ============================================================
+# Peer enumeration from Prometheus metrics
+# ============================================================
+
+PROMETHEUS_METRICS = """
+# HELP network_peer_connected Number of connected peers
+# TYPE network_peer_connected gauge
+network_peer_connected{peer_id="abc123",address="/ip4/10.0.0.1/tcp/8080"} 1
+network_peer_connected{peer_id="def456",address="/ip4/10.0.0.2/tcp/8080"} 1
+network_peer_connected{peer_id="ghi789",address="/ip4/10.0.0.3/tcp/8080"} 0
+network_peer_connected{peer_id="jkl012",address="/dns4/peer.example.com/tcp/8080"} 1
+"""
+
+
+@pytest.mark.asyncio
+async def test_enumerate_peers_parses_prometheus_metrics(sui_tools):
+    """enumerate_peers extracts connected peer IPs from Prometheus metrics."""
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.text = PROMETHEUS_METRICS
+    mock_response.raise_for_status = MagicMock()
+
+    with patch("httpx.AsyncClient") as mock_client_cls:
+        mock_client = AsyncMock()
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=None)
+        mock_client.get = AsyncMock(return_value=mock_response)
+        mock_client_cls.return_value = mock_client
+
+        result = await sui_tools.enumerate_peers(
+            metrics_url="http://localhost:9184/metrics"
+        )
+
+    # Only connected peers (value=1), excluding value=0
+    peers = result["peers"]
+    ips = [p.get("ip_address") or p.get("hostname") for p in peers]
+    assert "10.0.0.1" in ips
+    assert "10.0.0.2" in ips
+    assert "10.0.0.3" not in ips  # not connected
+    assert "peer.example.com" in ips
+
+
+@pytest.mark.asyncio
+async def test_enumerate_peers_returns_empty_on_error(sui_tools):
+    """enumerate_peers returns empty list on connection/HTTP errors."""
+    with patch("httpx.AsyncClient") as mock_client_cls:
+        mock_client = AsyncMock()
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=None)
+        mock_client.get = AsyncMock(side_effect=Exception("Connection refused"))
+        mock_client_cls.return_value = mock_client
+
+        result = await sui_tools.enumerate_peers(
+            metrics_url="http://unreachable:9184/metrics"
+        )
+
+    assert result["peers"] == []
+
+
+@pytest.mark.asyncio
+async def test_enumerate_peers_in_tool_map(sui_tools):
+    """sui_enumerate_peers should be registered in the tool map."""
+    tool_map = sui_tools.get_tool_map()
+    assert "sui_enumerate_peers" in tool_map
+
+
+def test_enumerate_peers_in_schemas(sui_tools):
+    """sui_enumerate_peers should appear in the tool schemas."""
+    schema_names = [s["function"]["name"] for s in sui_tools.schemas()]
+    assert "sui_enumerate_peers" in schema_names

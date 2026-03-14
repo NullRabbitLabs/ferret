@@ -12,6 +12,20 @@
     "allowed_ports": [8000, 8001, 8002, 8003, 8899, 8900, 9900, 8328],
     "description": "Solana mainnet cluster nodes"
   },
+  "sui-testnet": {
+    "chain_type": "sui",
+    "env_var": "DISCOVERY_SUI_TESTNET_RPC",
+    "default_rpc_url": "https://fullnode.testnet.sui.io:443",
+    "allowed_ports": [8080, 8081, 8082, 8083, 8084, 9184, 1337],
+    "description": "Sui testnet validator and fullnode network"
+  },
+  "sui-devnet": {
+    "chain_type": "sui",
+    "env_var": "DISCOVERY_SUI_DEVNET_RPC",
+    "default_rpc_url": "https://fullnode.devnet.sui.io:443",
+    "allowed_ports": [8080, 8081, 8082, 8083, 8084, 9184, 1337],
+    "description": "Sui devnet fullnode network"
+  },
   "cosmos": {
     "env_var": "DISCOVERY_COSMOS_RPC",
     "default_rpc_url": "https://cosmos-rpc.publicnode.com",
