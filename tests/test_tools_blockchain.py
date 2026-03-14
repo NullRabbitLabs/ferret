@@ -179,20 +179,15 @@ async def test_sui_get_seed_hosts_extracts_net_and_p2p(sui_tools):
     mock_response.raise_for_status = MagicMock()
     mock_response.json.return_value = SUI_VALIDATORS_RESPONSE
 
-    empty_seed = MagicMock()
-    empty_seed.status_code = 200
-    empty_seed.text = "p2p-config:\n  seed-peers: []\n"
-    empty_seed.raise_for_status = MagicMock()
-
     with patch("httpx.AsyncClient") as mock_client_cls:
         mock_client = AsyncMock()
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
         mock_client.__aexit__ = AsyncMock(return_value=None)
         mock_client.post = AsyncMock(return_value=mock_response)
-        mock_client.get = AsyncMock(return_value=empty_seed)
         mock_client_cls.return_value = mock_client
 
-        hosts = await sui_tools.get_seed_hosts("sui")
+        with patch.object(sui_tools, "get_seed_peers", return_value=[]):
+            hosts = await sui_tools.get_seed_hosts("sui")
 
     # net_address and p2p_address are different ports in the fixture, so both should appear
     assert len(hosts) == 2
@@ -225,20 +220,15 @@ async def test_sui_get_seed_hosts_deduplicates_same_ip_port(sui_tools):
     mock_response.raise_for_status = MagicMock()
     mock_response.json.return_value = response
 
-    empty_seed = MagicMock()
-    empty_seed.status_code = 200
-    empty_seed.text = "p2p-config:\n  seed-peers: []\n"
-    empty_seed.raise_for_status = MagicMock()
-
     with patch("httpx.AsyncClient") as mock_client_cls:
         mock_client = AsyncMock()
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
         mock_client.__aexit__ = AsyncMock(return_value=None)
         mock_client.post = AsyncMock(return_value=mock_response)
-        mock_client.get = AsyncMock(return_value=empty_seed)
         mock_client_cls.return_value = mock_client
 
-        hosts = await sui_tools.get_seed_hosts("sui")
+        with patch.object(sui_tools, "get_seed_peers", return_value=[]):
+            hosts = await sui_tools.get_seed_hosts("sui")
 
     assert len(hosts) == 1  # deduplicated
 

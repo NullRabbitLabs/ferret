@@ -117,15 +117,6 @@ def sui_tools():
     return SuiTools(rpc_url="https://test.sui.io", cache_ttl=3600)
 
 
-def _make_empty_seed_response():
-    """Return a mock GET response with empty seed peers YAML."""
-    r = MagicMock()
-    r.status_code = 200
-    r.text = "p2p-config:\n  seed-peers: []\n"
-    r.raise_for_status = MagicMock()
-    return r
-
-
 @pytest.mark.asyncio
 async def test_get_seed_hosts_includes_operator_name(sui_tools):
     """operator_name field must be populated from validator 'name'."""
@@ -138,10 +129,10 @@ async def test_get_seed_hosts_includes_operator_name(sui_tools):
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
         mock_client.__aexit__ = AsyncMock(return_value=None)
         mock_client.post = AsyncMock(return_value=mock_response)
-        mock_client.get = AsyncMock(return_value=_make_empty_seed_response())
         mock_client_cls.return_value = mock_client
 
-        hosts = await sui_tools.get_seed_hosts("sui")
+        with patch.object(sui_tools, "get_seed_peers", return_value=[]):
+            hosts = await sui_tools.get_seed_hosts("sui")
 
     assert len(hosts) >= 1
     for h in hosts:
@@ -173,10 +164,10 @@ async def test_get_seed_hosts_operator_name_none_when_no_name(sui_tools):
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
         mock_client.__aexit__ = AsyncMock(return_value=None)
         mock_client.post = AsyncMock(return_value=mock_response)
-        mock_client.get = AsyncMock(return_value=_make_empty_seed_response())
         mock_client_cls.return_value = mock_client
 
-        hosts = await sui_tools.get_seed_hosts("sui")
+        with patch.object(sui_tools, "get_seed_peers", return_value=[]):
+            hosts = await sui_tools.get_seed_hosts("sui")
 
     for h in hosts:
         assert h["operator_name"] is None
@@ -186,24 +177,28 @@ async def test_get_seed_hosts_operator_name_none_when_no_name(sui_tools):
 # Seed peers from Sui GitHub config
 # ============================================================
 
-SEED_PEER_YAML = """
+SEED_PEER_MDX = """
+## Mainnet
+
+```yaml
 p2p-config:
   seed-peers:
-    - address: /dns/seed-1.sui.io/udp/8084
+    - address: /dns/seed-1.mainnet.sui.io/udp/8084
       peer-id: abc123
     - address: /ip4/10.0.0.1/udp/8084
       peer-id: def456
     - address: /dns4/fullnode.example.com/tcp/8080
       peer-id: ghi789
+```
 """
 
 
 @pytest.mark.asyncio
-async def test_get_seed_peers_parses_yaml(sui_tools):
-    """get_seed_peers fetches GitHub YAML and parses multiaddr seed entries."""
+async def test_get_seed_peers_parses_mdx(sui_tools):
+    """get_seed_peers fetches GitHub MDX and parses seed entries."""
     mock_response = MagicMock()
     mock_response.status_code = 200
-    mock_response.text = SEED_PEER_YAML
+    mock_response.text = SEED_PEER_MDX
     mock_response.raise_for_status = MagicMock()
 
     with patch("httpx.AsyncClient") as mock_client_cls:
@@ -219,7 +214,7 @@ async def test_get_seed_peers_parses_yaml(sui_tools):
     ips = [p.get("ip_address") for p in peers]
     hostnames = [p.get("hostname") for p in peers]
     assert "10.0.0.1" in ips
-    assert "seed-1.sui.io" in hostnames
+    assert "seed-1.mainnet.sui.io" in hostnames
     assert "fullnode.example.com" in hostnames
     for p in peers:
         assert p["discovery_method"] == "seed_peer"
@@ -228,8 +223,8 @@ async def test_get_seed_peers_parses_yaml(sui_tools):
 
 
 @pytest.mark.asyncio
-async def test_get_seed_peers_empty_on_http_error(sui_tools):
-    """get_seed_peers returns empty list on HTTP errors (non-fatal)."""
+async def test_get_seed_peers_falls_back_on_http_error(sui_tools):
+    """get_seed_peers falls back to hardcoded peers on HTTP errors."""
     mock_response = MagicMock()
     mock_response.status_code = 404
     mock_response.raise_for_status = MagicMock(side_effect=Exception("404"))
@@ -243,36 +238,57 @@ async def test_get_seed_peers_empty_on_http_error(sui_tools):
 
         peers = await sui_tools.get_seed_peers("sui")
 
-    assert peers == []
+    # Falls back to _FALLBACK_SEED_PEERS["sui"] (10 mainnet entries)
+    assert len(peers) >= 10
+    hostnames = [p.get("hostname") for p in peers]
+    assert any("mainnet.sui.io" in (h or "") for h in hostnames)
+    for p in peers:
+        assert p["discovery_method"] == "seed_peer"
 
 
 @pytest.mark.asyncio
 async def test_get_seed_peers_skips_unparseable_addresses(sui_tools):
     """Entries with unparseable multiaddrs are silently skipped."""
-    yaml_data = """
+    entries = [
+        {"address": "/onion/hiddenservice/8084", "peer-id": "xxx"},
+        {"address": "/ip4/10.0.0.1/udp/8084", "peer-id": "yyy"},
+    ]
+    hosts = sui_tools._parse_seed_peer_entries(entries, "sui")
+    assert len(hosts) == 1
+    assert hosts[0]["ip_address"] == "10.0.0.1"
+
+
+def test_extract_seed_peers_from_mdx():
+    """MDX parser extracts correct block by network marker."""
+    from src.tools.blockchain.sui import _extract_seed_peers_from_mdx
+
+    mdx = """
+## Mainnet
+```yaml
 p2p-config:
   seed-peers:
-    - address: /onion/hiddenservice/8084
-      peer-id: xxx
-    - address: /ip4/10.0.0.1/udp/8084
-      peer-id: yyy
+    - address: /dns/mel-00.mainnet.sui.io/udp/8084
+      peer-id: aaa
+```
+
+## Testnet
+```yaml
+p2p-config:
+  seed-peers:
+    - address: /dns/yto-tnt-ssfn-01.testnet.sui.io/udp/8084
+      peer-id: bbb
+```
 """
-    mock_response = MagicMock()
-    mock_response.status_code = 200
-    mock_response.text = yaml_data
-    mock_response.raise_for_status = MagicMock()
+    mainnet = _extract_seed_peers_from_mdx(mdx, "sui")
+    assert len(mainnet) == 1
+    assert "mainnet" in mainnet[0]["address"]
 
-    with patch("httpx.AsyncClient") as mock_client_cls:
-        mock_client = AsyncMock()
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=None)
-        mock_client.get = AsyncMock(return_value=mock_response)
-        mock_client_cls.return_value = mock_client
+    testnet = _extract_seed_peers_from_mdx(mdx, "sui-testnet")
+    assert len(testnet) == 1
+    assert "testnet" in testnet[0]["address"]
 
-        peers = await sui_tools.get_seed_peers("sui")
-
-    assert len(peers) == 1
-    assert peers[0]["ip_address"] == "10.0.0.1"
+    devnet = _extract_seed_peers_from_mdx(mdx, "sui-devnet")
+    assert devnet == []
 
 
 # ============================================================
@@ -288,31 +304,25 @@ async def test_get_seed_hosts_merges_validators_and_seed_peers(sui_tools):
     validator_response.raise_for_status = MagicMock()
     validator_response.json.return_value = SUI_VALIDATORS_WITH_NAME
 
-    # Mock get_seed_peers GitHub response with one new peer + one overlapping
-    seed_yaml = """
-p2p-config:
-  seed-peers:
-    - address: /ip4/1.2.3.4/udp/8084
-      peer-id: overlap
-    - address: /ip4/10.0.0.99/udp/8084
-      peer-id: newpeer
-"""
-    seed_response = MagicMock()
-    seed_response.status_code = 200
-    seed_response.text = seed_yaml
-    seed_response.raise_for_status = MagicMock()
+    # Patch get_seed_peers to return one overlap + one new peer
+    fake_seed_peers = [
+        {"ip_address": "1.2.3.4", "hostname": None, "port": 8084,
+         "service_type": "p2p", "confidence": 0.80, "discovery_method": "seed_peer",
+         "validator_pubkey": None, "operator_name": None, "reasoning": "test"},
+        {"ip_address": "10.0.0.99", "hostname": None, "port": 8084,
+         "service_type": "p2p", "confidence": 0.80, "discovery_method": "seed_peer",
+         "validator_pubkey": None, "operator_name": None, "reasoning": "test"},
+    ]
 
     with patch("httpx.AsyncClient") as mock_client_cls:
         mock_client = AsyncMock()
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
         mock_client.__aexit__ = AsyncMock(return_value=None)
-
-        # First call is get_validators (POST), second is get_seed_peers (GET)
         mock_client.post = AsyncMock(return_value=validator_response)
-        mock_client.get = AsyncMock(return_value=seed_response)
         mock_client_cls.return_value = mock_client
 
-        hosts = await sui_tools.get_seed_hosts("sui")
+        with patch.object(sui_tools, "get_seed_peers", return_value=fake_seed_peers):
+            hosts = await sui_tools.get_seed_hosts("sui")
 
     # Should have validator hosts + one new seed peer (1.2.3.4:8084 is deduplicated)
     ips = [(h.get("ip_address"), h.get("port")) for h in hosts]

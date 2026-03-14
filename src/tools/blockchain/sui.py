@@ -35,10 +35,35 @@ SUI_GET_VALIDATORS_SCHEMA = {
     },
 }
 
-SUI_SEED_PEER_URLS = {
-    "sui": "https://raw.githubusercontent.com/MystenLabs/sui/main/nre/config/mainnet/fullnode.yaml",
-    "sui-testnet": "https://raw.githubusercontent.com/MystenLabs/sui/main/nre/config/testnet/fullnode.yaml",
-    "sui-devnet": "https://raw.githubusercontent.com/MystenLabs/sui/main/nre/config/devnet/fullnode.yaml",
+SUI_SEED_PEER_URL = (
+    "https://raw.githubusercontent.com/MystenLabs/sui/main/"
+    "docs/content/guides/operator/sui-full-node.mdx"
+)
+
+# Fallback seed peers from MystenLabs docs (stable Mysten-operated SSFN infrastructure).
+# Updated 2026-03-14 from https://docs.sui.io/guides/operator/sui-full-node
+_FALLBACK_SEED_PEERS: dict[str, list[dict]] = {
+    "sui": [
+        {"address": "/dns/mel-00.mainnet.sui.io/udp/8084", "peer-id": "d32b55bdf1737ec415df8c88b3bf91e194b59ee3127e3f38ea46fd88ba2e7849"},
+        {"address": "/dns/ewr-00.mainnet.sui.io/udp/8084", "peer-id": "c7bf6cb93ca8fdda655c47ebb85ace28e6931464564332bf63e27e90199c50ee"},
+        {"address": "/dns/ewr-01.mainnet.sui.io/udp/8084", "peer-id": "3227f8a05f0faa1a197c075d31135a366a1c6f3d4872cb8af66c14dea3e0eb66"},
+        {"address": "/dns/lhr-00.mainnet.sui.io/udp/8084", "peer-id": "c619a5e0f8f36eac45118c1f8bda28f0f508e2839042781f1d4a9818043f732c"},
+        {"address": "/dns/sui-mainnet-ssfn-1.nodeinfra.com/udp/8084", "peer-id": "0c52ca8d2b9f51be4a50eb44ace863c05aadc940a7bd15d4d3f498deb81d7fc6"},
+        {"address": "/dns/sui-mainnet-ssfn-2.nodeinfra.com/udp/8084", "peer-id": "1dbc28c105aa7eb9d1d3ac07ae663ea638d91f2b99c076a52bbded296bd3ed5c"},
+        {"address": "/dns/sui-mainnet-ssfn-ashburn-na.overclock.run/udp/8084", "peer-id": "5ff8461ab527a8f241767b268c7aaf24d0312c7b923913dd3c11ee67ef181e45"},
+        {"address": "/dns/sui-mainnet-ssfn-dallas-na.overclock.run/udp/8084", "peer-id": "e1a4f40d66f1c89559a195352ba9ff84aec28abab1d3aa1c491901a252acefa6"},
+        {"address": "/dns/ssn01.mainnet.sui.rpcpool.com/udp/8084", "peer-id": "fadb7ccb0b7fc99223419176e707f5122fef4ea686eb8e80d1778588bf5a0bcd"},
+        {"address": "/dns/ssn02.mainnet.sui.rpcpool.com/udp/8084", "peer-id": "13783584a90025b87d4604f1991252221e5fd88cab40001642f4b00111ae9b7e"},
+    ],
+    "sui-testnet": [
+        {"address": "/dns/yto-tnt-ssfn-01.testnet.sui.io/udp/8084", "peer-id": "2ed53564d5581ded9b6773970ac2f1c84d39f9edf01308ff5a1ffe09b1add7b3"},
+        {"address": "/dns/yto-tnt-ssfn-00.testnet.sui.io/udp/8084", "peer-id": "6563732e5ab33b4ae09c73a98fd37499b71b8f03c27b5cc51acc26934974aff2"},
+        {"address": "/dns/nrt-tnt-ssfn-00.testnet.sui.io/udp/8084", "peer-id": "23a1f7cd901b6277cbedaa986b3fc183f171d800cabba863d48f698f518967e1"},
+        {"address": "/dns/ewr-tnt-ssfn-00.testnet.sui.io/udp/8084", "peer-id": "df8a8d128051c249e224f95fcc463f518a0ebed8986bbdcc11ed751181fecd38"},
+        {"address": "/dns/lax-tnt-ssfn-00.testnet.sui.io/udp/8084", "peer-id": "f9a72a0a6c17eed09c27898eab389add704777c03e135846da2428f516a0c11d"},
+        {"address": "/dns/lhr-tnt-ssfn-00.testnet.sui.io/udp/8084", "peer-id": "9393d6056bb9c9d8475a3cf3525c747257f17c6a698a7062cbbd1875bc6ef71e"},
+        {"address": "/dns/mel-tnt-ssfn-00.testnet.sui.io/udp/8084", "peer-id": "c88742f46e66a11cb8c84aca488065661401ef66f726cb9afeb8a5786d83456e"},
+    ],
 }
 
 SUI_ENUMERATE_PEERS_SCHEMA = {
@@ -152,33 +177,35 @@ class SuiTools(ChainTools):
         return hosts
 
     async def get_seed_peers(self, network: str) -> list[dict]:
-        """Fetch seed peer list from MystenLabs GitHub fullnode config.
+        """Return seed peer hosts from MystenLabs docs.
 
-        Parses the p2p-config.seed-peers YAML entries and extracts multiaddrs.
+        Tries to fetch fresh data from GitHub MDX docs. On failure, falls back
+        to hardcoded _FALLBACK_SEED_PEERS (Mysten-operated SSFN infrastructure).
         Returns host dicts with discovery_method='seed_peer', confidence=0.80.
         """
-        url = SUI_SEED_PEER_URLS.get(network)
-        if not url:
-            # Fall back to mainnet config for unknown network variants
-            url = SUI_SEED_PEER_URLS["sui"]
+        raw_peers = await self._fetch_seed_peers_from_github(network)
+        if not raw_peers:
+            raw_peers = _FALLBACK_SEED_PEERS.get(network, _FALLBACK_SEED_PEERS.get("sui", []))
 
+        return self._parse_seed_peer_entries(raw_peers, network)
+
+    async def _fetch_seed_peers_from_github(self, network: str) -> list[dict]:
+        """Try to fetch and parse seed peers from the MystenLabs GitHub docs MDX."""
         try:
             async with httpx.AsyncClient(timeout=30.0) as client:
-                response = await client.get(url)
+                response = await client.get(SUI_SEED_PEER_URL)
             response.raise_for_status()
         except Exception:
-            logger.warning("Failed to fetch seed peers from %s", url)
+            logger.warning("Failed to fetch seed peers from %s", SUI_SEED_PEER_URL)
             return []
 
-        try:
-            data = yaml.safe_load(response.text)
-        except yaml.YAMLError:
-            logger.warning("Failed to parse seed peer YAML from %s", url)
-            return []
+        # Extract YAML blocks from MDX — look for seed-peers sections
+        return _extract_seed_peers_from_mdx(response.text, network)
 
-        seed_peers = (data or {}).get("p2p-config", {}).get("seed-peers", [])
+    def _parse_seed_peer_entries(self, entries: list[dict], network: str) -> list[dict]:
+        """Convert raw seed peer dicts (with 'address' key) to host dicts."""
         hosts = []
-        for entry in seed_peers:
+        for entry in entries:
             addr = entry.get("address")
             host, port = _parse_multiaddr(addr)
             if not host:
@@ -193,7 +220,7 @@ class SuiTools(ChainTools):
                 "discovery_method": "seed_peer",
                 "validator_pubkey": None,
                 "operator_name": None,
-                "reasoning": f"Seed peer from MystenLabs GitHub config ({network})",
+                "reasoning": f"Seed peer from MystenLabs config ({network})",
             })
         return hosts
 
@@ -356,3 +383,32 @@ def _is_ip(host: str) -> bool:
         return True
     except ValueError:
         return False
+
+
+def _extract_seed_peers_from_mdx(text: str, network: str) -> list[dict]:
+    """Extract seed-peers from the Sui full-node MDX docs.
+
+    The MDX contains fenced YAML blocks with seed-peers for mainnet/testnet.
+    We find the right block by looking for network-specific hostnames.
+    """
+    # Determine which hostname pattern to look for
+    if "testnet" in network:
+        marker = "testnet.sui.io"
+    elif "devnet" in network:
+        marker = "devnet.sui.io"
+    else:
+        marker = "mainnet.sui.io"
+
+    # Extract all fenced YAML code blocks
+    blocks = re.findall(r"```yaml\s*\n(.*?)```", text, re.DOTALL)
+    for block in blocks:
+        if marker not in block:
+            continue
+        try:
+            data = yaml.safe_load(block)
+        except yaml.YAMLError:
+            continue
+        peers = (data or {}).get("p2p-config", {}).get("seed-peers", [])
+        if peers:
+            return peers
+    return []
