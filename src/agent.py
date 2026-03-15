@@ -30,10 +30,6 @@ _LIST_KEYS = ("hosts", "validators", "results", "records", "committee")
 # - bulk_report_discovered_hosts: internal batch import, not for LLM use
 _CODE_ONLY_TOOLS = {"asn_lookup", "reverse_dns", "get_known_hosts", "bulk_report_discovered_hosts"}
 
-# Tools that probe live infrastructure — connection errors are expected,
-# so failures don't count toward the idle-call early-stop threshold.
-_PROBING_TOOLS = {"sui_enumerate_peers", "subnet_probe"}
-
 from src.api_client import DiscoveryApiClient as Database
 from src.db import DiscoveryRun, DiscoveryRunResult
 from src.gateway_client import DiscoveryGatewayClient, GatewayResponse, ToolCall
@@ -115,12 +111,12 @@ class DiscoveryAgent:
         chain_tools = NetworkRegistry.get_chain_tools(chain_type)
         tool_map = self._build_tool_map(chain_type, run_id_str)
 
-        # LLM tools: exclude seeding-only chain tools (called in Phase 1 code)
+        # LLM tools: exclude chain-specific fetch tools (seeded in code)
         # and exclude code-only tools (ASN/DNS run in code, bulk import, etc.).
-        seeding_only = chain_tools.seeding_only_tools()
+        chain_schema_names = {s["function"]["name"] for s in chain_tools.schemas()}
         tool_schemas = [
             s for s in NetworkRegistry.get_all_tool_schemas(chain_type)
-            if s["function"]["name"] not in seeding_only
+            if s["function"]["name"] not in chain_schema_names
             and s["function"]["name"] not in _CODE_ONLY_TOOLS
         ]
 
@@ -235,10 +231,6 @@ class DiscoveryAgent:
                         idle_calls = 0
                     else:
                         idle_calls += 1
-                elif tc.name in _PROBING_TOOLS:
-                    # Exploratory probing (e.g. enumerate_peers) — connection
-                    # refused is expected; don't penalise the idle counter.
-                    pass
                 else:
                     idle_calls += 1
 

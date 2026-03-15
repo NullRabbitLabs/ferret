@@ -66,28 +66,6 @@ _FALLBACK_SEED_PEERS: dict[str, list[dict]] = {
     ],
 }
 
-SUI_ENUMERATE_PEERS_SCHEMA = {
-    "type": "function",
-    "function": {
-        "name": "sui_enumerate_peers",
-        "description": (
-            "Scrape Prometheus metrics from a known Sui node to discover connected peer IPs. "
-            "Parses network_peer_connected metrics to extract peer addresses. "
-            "Requires a metrics endpoint URL (typically port 9184)."
-        ),
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "metrics_url": {
-                    "type": "string",
-                    "description": "Prometheus metrics endpoint URL (e.g. http://host:9184/metrics)",
-                },
-            },
-            "required": ["metrics_url"],
-        },
-    },
-}
-
 SUI_GET_COMMITTEE_SCHEMA = {
     "type": "function",
     "function": {
@@ -120,14 +98,10 @@ class SuiTools(ChainTools):
         self._validators_cached_at: float = 0.0
 
     def schemas(self) -> list[dict]:
-        return [SUI_GET_VALIDATORS_SCHEMA, SUI_GET_COMMITTEE_SCHEMA, SUI_ENUMERATE_PEERS_SCHEMA]
+        return [SUI_GET_VALIDATORS_SCHEMA, SUI_GET_COMMITTEE_SCHEMA]
 
     def primary_tool_name(self) -> str:
         return "sui_get_validators"
-
-    def seeding_only_tools(self) -> set[str]:
-        """Only exclude validator/committee fetch — keep enumerate_peers for LLM."""
-        return {"sui_get_validators", "sui_get_committee"}
 
     async def get_seed_hosts(self, network: str) -> list[dict]:
         """Fetch validators + seed peers and return merged, deduplicated host list.
@@ -228,65 +202,10 @@ class SuiTools(ChainTools):
             })
         return hosts
 
-    async def enumerate_peers(self, metrics_url: str, **kwargs) -> dict:
-        """Scrape Prometheus metrics from a Sui node to discover connected peers.
-
-        Parses network_peer_connected{peer_id="...",address="..."} lines.
-        Only returns peers with value=1 (currently connected).
-        """
-        try:
-            async with httpx.AsyncClient(timeout=15.0) as client:
-                response = await client.get(metrics_url)
-            response.raise_for_status()
-        except Exception:
-            logger.warning("Failed to scrape metrics from %s", metrics_url)
-            return {"peers": [], "metrics_url": metrics_url}
-
-        peers = []
-        seen: set[tuple] = set()
-        for line in response.text.splitlines():
-            if not line.startswith("network_peer_connected{"):
-                continue
-            # Only include connected peers (value == 1)
-            parts = line.rsplit(" ", 1)
-            if len(parts) != 2:
-                continue
-            try:
-                value = float(parts[1])
-            except ValueError:
-                continue
-            if value != 1:
-                continue
-
-            # Extract address from labels
-            m = re.search(r'address="([^"]+)"', line)
-            if not m:
-                continue
-            host, port = _parse_multiaddr(m.group(1))
-            if not host:
-                continue
-            key = (host, port)
-            if key in seen:
-                continue
-            seen.add(key)
-
-            is_ip = _is_ip(host)
-            peers.append({
-                "ip_address": host if is_ip else None,
-                "hostname": None if is_ip else host,
-                "port": port,
-                "service_type": "p2p",
-                "confidence": 0.70,
-                "discovery_method": "peer_enumeration",
-            })
-
-        return {"peers": peers, "metrics_url": metrics_url, "count": len(peers)}
-
     def get_tool_map(self) -> dict[str, Callable]:
         return {
             "sui_get_validators": self.get_validators,
             "sui_get_committee": self.get_committee,
-            "sui_enumerate_peers": self.enumerate_peers,
         }
 
     def _is_validators_cache_valid(self) -> bool:

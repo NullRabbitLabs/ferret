@@ -38,9 +38,6 @@ class _MockSuiTools:
     def primary_tool_name(self):
         return "sui_get_validators"
 
-    def seeding_only_tools(self):
-        return set()
-
     async def get_seed_hosts(self, network):
         return []  # No HTTP calls in unit tests
 
